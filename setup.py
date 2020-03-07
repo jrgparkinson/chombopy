@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 
 setup(name='chombopy',
-      version='0.1.2-alpha-1',
+      version='0.1.2-alpha-2',
       description='Running, analysing and plotting Chombo simulations',
       url='https://github.com/jrgparkinson/mushy-layer',
       author='Jamie Parkinson',
@@ -19,7 +19,7 @@ setup(name='chombopy',
                         'Shapely>=1.6.0',
                         'geopandas>=0.6.2',
                         'scipy>=1.2.0',
-                        'scikit-image>=0.16.2'
+                        'scikit-image>=0.16.2',
                         'xarray>=0.11.3',
                         'h5py>=2.9.0',
                         'numpy>=1.16.0'],

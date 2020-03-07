@@ -71,8 +71,8 @@ def isfloat(value):
     Determine if value is a float
     """
     try:
-        floatVal = float(value)
-        if floatVal == value or str(floatVal) == value:
+        float_val = float(value)
+        if float_val == value or str(float_val) == value:
             return True
         else:
             return False
@@ -86,9 +86,9 @@ def isint(value):
     """
 
     try:
-        intval = int(value)
+        int_val = int(value)
 
-        if intval == value or str(intval) == value:
+        if int_val == value or str(int_val) == value:
             return True
         else:
             return False
