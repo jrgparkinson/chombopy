@@ -5,6 +5,7 @@ import numpy as np
 from matplotlib import pyplot
 import re
 import os
+import logging
 import xarray as xr
 from shapely.ops import cascaded_union
 from shapely.geometry import Polygon
@@ -83,7 +84,7 @@ class PltFile:
         self.data = {}
 
         if not os.path.exists(filename):
-            print('PltFile: file does not exist "%s"' % filename)
+            logging.info('PltFile: file does not exist "%s"' % filename)
             return
         self.filename = filename
 
@@ -107,7 +108,7 @@ class PltFile:
         if os.path.exists(inputs_file_loc):
             self.inputs = read_inputs(inputs_file_loc)
         else:
-            print("Cannot find inputs file %s" % inputs_file_loc)
+            logging.info("Cannot find inputs file %s" % inputs_file_loc)
             self.inputs = None
 
         self.defined = True
@@ -139,15 +140,15 @@ class PltFile:
     # noinspection PyUnresolvedReferences
     def load_data_native(self, zero_x=False):
 
-        print("Loading %s" % self.filename)
+        logging.info("Loading %s" % self.filename)
 
         h5_file = h5py.File(self.filename, "r")
 
-        # print('Loaded HDF5 file with groups: ' + str(h5File.keys()))
-        # print(' and attributes: ' + str(h5File.attrs.keys()))
+        # logging.info('Loaded HDF5 file with groups: ' + str(h5File.keys()))
+        # logging.info(' and attributes: ' + str(h5File.attrs.keys()))
 
         # Get all the different bits of data from the file
-        # print(h5File)
+        # logging.info(h5File)
 
         chombo_group = h5_file["Chombo_global"]
         global_attrs = chombo_group.attrs
@@ -346,7 +347,7 @@ class PltFile:
                     ds_box = xr.Dataset({}, coords=coords)
 
                     for comp_name in self.comp_names:
-                        # print('Num cells in a box: ' + str(num_box_cells))
+                        # logging.info('Num cells in a box: ' + str(num_box_cells))
                         comp_offset_finish = comp_offset_start + num_box_cells
 
                         indices = [
@@ -434,7 +435,7 @@ class PltFile:
 
                         data_unshaped = data[()]
 
-                        # print('Num cells in a box: ' + str(num_box_cells))
+                        # logging.info('Num cells in a box: ' + str(num_box_cells))
                         # comp_offset_finish = comp_offset_start + num_box_cells
 
                         component_offset = 0  # this is just 0 because we only get data for this component
@@ -547,7 +548,7 @@ class PltFile:
         data_box_comp = data_unshaped[indices[0] : indices[1]]
 
         if len(data_box_comp) == 0:
-            print("ERROR - no data in box")
+            logging.info("ERROR - no data in box")
 
         # Chombo data is indexed in reverse (i.e. data[k, j, i]), so whilst we have n_cells_dir = [Nx, Ny, Nz],
         # we need to reshape according to [Nz, Ny, Nx] before then transposing to get
@@ -750,7 +751,7 @@ class PltFile:
     def get_level_data(self, field, level=0, valid_only=False):
 
         if len(self.comp_names) == 0:
-            print(
+            logging.info(
                 "No data loaded, perhaps you meant to call PltFile.load_data() first? "
             )
 
@@ -759,18 +760,18 @@ class PltFile:
             # TODO: write this
 
         if not self.data_loaded:
-            print("Data not loaded")
+            logging.info("Data not loaded")
             return
 
         available_comps = list(self.ds_levels[0].keys())
 
         if field not in available_comps:
-            print("Field: %s not found. The following fields do exist: " % field)
-            # print(self.data.keys())
-            print(available_comps)
+            logging.info("Field: %s not found. The following fields do exist: " % field)
+            # logging.info(self.data.keys())
+            logging.info(available_comps)
 
             if field == "LiquidSalinity" and "Liquid concentration" in available_comps:
-                print("Using Liquid concentration instead")
+                logging.info("Using Liquid concentration instead")
                 field = "Liquid concentration"
             else:
                 return
@@ -865,7 +866,7 @@ class PltFile:
 
         else:
             pass
-            # print(self.ds.field_list)
+            # logging.info(self.ds.field_list)
 
             # plot = yt.SlicePlot(self.ds, 'z', "Porosity")
             # plot.save()
@@ -878,17 +879,17 @@ class PltFile:
         #
         # for box_i in range(0, len(self.levels[0]['boxes'])):
         #     box = self.levels[level]['boxes'][box_i]
-        #     # print(box)
+        #     # logging.info(box)
         #
         #     this_box = self.data[field]['data'][0][box_i]
-        #     # print(this_box)
+        #     # logging.info(this_box)
         #
         #     ioffset = box[0] - self.prob_domain[0]
         #     joffset = box[1] - self.prob_domain[1]
         #
         #     for i in range(0, box[2] + 1 - box[0]):
         #         for j in range(0, box[3] + 1 - box[1]):
-        #             # print(str(i) + ', ' + str(j))
+        #             # logging.info(str(i) + ', ' + str(j))
         #             field_arr[j + joffset][i + ioffset] = this_box[j][i]
         ds = self.get_level_data(field, level)
         field_arr = np.array(ds)
@@ -915,7 +916,7 @@ class PltFile:
         # First get parameters
 
         if self.inputs is None:
-            print(
+            logging.info(
                 "No inputs file available, so do not know parameters and cannot compute diagnostic variables"
             )
             sys.exit(-1)
@@ -956,7 +957,7 @@ class PltFile:
             solid_salinity = np.empty(enthalpy.shape)
 
             # Now compute bounding energies
-            print("Computing bounding energy")
+            logging.info("Computing bounding energy")
             for idx, _ in np.ndenumerate(enthalpy):
                 eutectic_porosity = (conc_ratio + bulk_salinity[idx]) / (
                     theta_eutectic + conc_ratio
@@ -977,7 +978,7 @@ class PltFile:
             # enthalpy_solidus = cp * (theta_eutectic + np.max(0.0, (-bulk_salinity - conc_ratio) / pc))
             # enthalpy_liquidus = stefan - bulk_salinity + theta_eutectic + theta_eutectic
 
-            print("Computing diagnostic variables")
+            logging.info("Computing diagnostic variables")
             # Compute diagnostic variables
             # for j in range(cols):
             #
@@ -1041,7 +1042,7 @@ class PltFile:
             self.ds_levels[level]["Solid concentration"] = ds_ss
 
             # available_comps = list(self.ds_levels[0].keys())
-            # print('Available comps: %s' % str(available_comps))
+            # logging.info('Available comps: %s' % str(available_comps))
 
     def get_permeability(self, permeability_function="kozeny", rotate_dims=False):
 
@@ -1065,7 +1066,7 @@ class PltFile:
                     self.inputs["parameters.nonDimReluctance"]
                 )
             else:
-                print(
+                logging.info(
                     "Unable to determine Hele-Shaw permeability, cannot find either parameters.heleShawPermeability "
                     "or parameters.nonDimReluctance in the inputs file. "
                 )
@@ -1109,7 +1110,7 @@ class PltFile:
             peaks, _ = find_peaks(slice_arr, prominence=prominence, distance=separation)
             num_peaks = len(peaks)
 
-            # print('Num peaks = %d' % num_peaks)
+            # logging.info('Num peaks = %d' % num_peaks)
             # x = np.array(slice.coords['x'])
             # import matplotlib.pyplot as plt
             # fig = plt.figure()
@@ -1133,7 +1134,7 @@ class PltFile:
             # slice_arr = slice_arr - slice_arr.min()
 
             peak_height = float(slice_arr.max()) / peak_height_scaling
-            # print('threshold_abs = %s' % peak_height)
+            # logging.info('threshold_abs = %s' % peak_height)
 
             coordinates = peak_local_max(
                 slice_arr,
@@ -1144,7 +1145,7 @@ class PltFile:
 
             num_peaks = len(coordinates)
 
-            # print('Num channels: %d' % num_peaks)
+            # logging.info('Num channels: %d' % num_peaks)
             # import matplotlib.pyplot as plt
             # fig = plt.figure()
             # ax = fig.gca()
@@ -1190,7 +1191,7 @@ class PltFile:
                 elif self.space_dim == 3:
                     vals = np.argwhere(porosity[ind[0], ind[1], :] < 1.0)
                 else:
-                    print("Unknown number of dimensions: %d" % self.space_dim)
+                    logging.info("Unknown number of dimensions: %d" % self.space_dim)
                     sys.exit(-1)
 
                 if vals.any():
@@ -1210,7 +1211,7 @@ class PltFile:
                 elif self.space_dim == 3:
                     vals = np.argwhere(porosity[ind[0], ind[1], :] < 1e-6)
                 else:
-                    print("Unknown dimension: %d" % self.space_dim)
+                    logging.info("Unknown dimension: %d" % self.space_dim)
                     sys.exit(-1)
 
                 if vals.any():

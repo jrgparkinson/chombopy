@@ -57,12 +57,14 @@ class TestPltFile(unittest.TestCase):
         ax = fig.gca()
         ax.pcolormesh(porosity.x, porosity.y, porosity)
 
-        pf.plot_outlines(ax)
+        # Can only execute these tests if latex is installed
+        if is_installed('latex'):
+            pf.plot_outlines(ax)
 
-        self.assertEqual(pf.get_field_label("Porosity"), r"$\chi$")
+            self.assertEqual(pf.get_field_label("Porosity"), r"$\chi$")
 
-        latexify2(5.0, 3.0)
-        pf.plot_field("Porosity")
+            latexify2(5.0, 3.0)
+            pf.plot_field("Porosity")
 
     def test_diagnostics(self):
         pf = PltFile(self.DATA_FILE, load_data=True)
@@ -114,6 +116,13 @@ class TestPltFile(unittest.TestCase):
         x, y = PltFile.get_mesh_grid_n(porosity)
         self.assertEqual(len(x), 16)
 
+def is_installed(name):
+    """Check whether `name` is on PATH and marked as executable."""
+
+    # from whichcraft import which
+    from shutil import which
+
+    return which(name) is not None
 
 if __name__ == "__main__":
     # unittest.main()
