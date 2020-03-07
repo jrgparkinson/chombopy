@@ -18,22 +18,24 @@ from itertools import product
 
 # TODO: Fix: AMR plotting is broken at the moment
 
+
 class PltFile:
     """ Class to load a plot file and perform operations on it
          e.g. find where brine channels are"""
-    NUM_COMPS = 'num_comps'
-    DATA = 'data'
-    DX = 'dx'
-    DT = 'dt'
-    REF_RATIO = 'ref_ratio'
-    BOXES = 'boxes'
 
-    YT = 'YT'
-    NATIVE = 'native'
-    XARRAY = 'xarray'
+    NUM_COMPS = "num_comps"
+    DATA = "data"
+    DX = "dx"
+    DT = "dt"
+    REF_RATIO = "ref_ratio"
+    BOXES = "boxes"
+
+    YT = "YT"
+    NATIVE = "native"
+    XARRAY = "xarray"
 
     # List of names for each direction to be used later
-    INDEX_COORDS_NAMES = ['i', 'j', 'k', 'l', 'm']  # add more here if more dimensions
+    INDEX_COORDS_NAMES = ["i", "j", "k", "l", "m"]  # add more here if more dimensions
 
     indices = None
     reflect = None
@@ -41,15 +43,17 @@ class PltFile:
 
     python_index_ordering = True
 
-    FIELD_LABEL = {'Porosity': r'$\chi$',
-                   'Bulk concentration': r'$\Theta$',
-                   'Liquid concentration': r'$\Theta_l$',
-                   'Permeability': r'$\Pi$',
-                   'xAdvection velocity': '$u$',
-                   'yAdvection velocity': '$w$',
-                   'streamfunction': r'$\psi$'}
+    FIELD_LABEL = {
+        "Porosity": r"$\chi$",
+        "Bulk concentration": r"$\Theta$",
+        "Liquid concentration": r"$\Theta_l$",
+        "Permeability": r"$\Pi$",
+        "xAdvection velocity": "$u$",
+        "yAdvection velocity": "$w$",
+        "streamfunction": r"$\psi$",
+    }
 
-    def __init__(self, filename, load_data=False, inputs_file='inputs'):
+    def __init__(self, filename, load_data=False, inputs_file="inputs"):
         self.is_plot_file = False
         self.defined = False
         self.data_loaded = False
@@ -84,7 +88,7 @@ class PltFile:
         self.filename = filename
 
         # Get the plot prefix and frame number assuming a format
-        prefix_format = r'([^\d\/]*)(\d+)\.\dd\.hdf5'
+        prefix_format = r"([^\d\/]*)(\d+)\.\dd\.hdf5"
         plot_file_name = self.filename
 
         m = re.search(prefix_format, plot_file_name)
@@ -97,14 +101,13 @@ class PltFile:
             self.plot_prefix = None
             self.frame = -1
 
-
         # get inputs
-        output_folder = os.path.abspath(os.path.join(self.filename, '..'))
+        output_folder = os.path.abspath(os.path.join(self.filename, ".."))
         inputs_file_loc = os.path.join(output_folder, inputs_file)
         if os.path.exists(inputs_file_loc):
             self.inputs = read_inputs(inputs_file_loc)
         else:
-            print('Cannot find inputs file %s' % inputs_file_loc)
+            print("Cannot find inputs file %s" % inputs_file_loc)
             self.inputs = None
 
         self.defined = True
@@ -113,7 +116,7 @@ class PltFile:
             self.load_data()
 
     def __repr__(self):
-        return '<PltFile object for %s>' % self.filename
+        return "<PltFile object for %s>" % self.filename
 
     def load_data(self, zero_x=False):
         if self.data_loaded:
@@ -136,9 +139,9 @@ class PltFile:
     # noinspection PyUnresolvedReferences
     def load_data_native(self, zero_x=False):
 
-        print('Loading %s' % self.filename)
+        print("Loading %s" % self.filename)
 
-        h5_file = h5py.File(self.filename, 'r')
+        h5_file = h5py.File(self.filename, "r")
 
         # print('Loaded HDF5 file with groups: ' + str(h5File.keys()))
         # print(' and attributes: ' + str(h5File.attrs.keys()))
@@ -146,28 +149,28 @@ class PltFile:
         # Get all the different bits of data from the file
         # print(h5File)
 
-        chombo_group = h5_file['Chombo_global']
+        chombo_group = h5_file["Chombo_global"]
         global_attrs = chombo_group.attrs
 
         attrs = h5_file.attrs
 
-        self.time = attrs['time']
-        self.iteration = int(attrs['iteration'])
-        self.max_level = int(attrs['max_level'])
-        self.num_levels = int(attrs['num_levels'])
+        self.time = attrs["time"]
+        self.iteration = int(attrs["iteration"])
+        self.max_level = int(attrs["max_level"])
+        self.num_levels = int(attrs["num_levels"])
         # self.regrid_interval = int(attrs['regrid_interval_0'])
-        self.num_comps = int(attrs['num_components'])
-        self.space_dim = int(global_attrs['SpaceDim'])
+        self.num_comps = int(attrs["num_components"])
+        self.space_dim = int(global_attrs["SpaceDim"])
 
         # Now read all the component names
         self.data = {}
 
         for i in range(0, self.num_comps):
-            name = attrs['component_' + str(i)]
-            name = name.decode('UTF-8')
+            name = attrs["component_" + str(i)]
+            name = name.decode("UTF-8")
 
             # Some of my files have wierd xEnthalpy yEnthalpy fields, which we should skip
-            if name == 'xEnthalpy' or name == 'yEnthalpy':
+            if name == "xEnthalpy" or name == "yEnthalpy":
                 continue
 
             # Previously, we treated vectors and scalars differently,
@@ -184,27 +187,33 @@ class PltFile:
 
         self.levels = [{}] * self.num_levels
         for level in range(0, self.num_levels):
-            level_group = h5_file['level_' + str(level)]
+            level_group = h5_file["level_" + str(level)]
 
             # Data is stored differently in plot files and chk files
             # much of what follows will be different as a result
-            if 'data:datatype=0' in list(level_group.keys()):
+            if "data:datatype=0" in list(level_group.keys()):
                 self.is_plot_file = True
 
             group_atts = level_group.attrs
-            boxes = level_group['boxes']
-            lev_dx = group_atts['dx']
-            self.levels[level] = {self.DX: lev_dx, self.DT: group_atts['dt'],
-                                  self.REF_RATIO: group_atts['ref_ratio'], self.BOXES: list(boxes)}
+            boxes = level_group["boxes"]
+            lev_dx = group_atts["dx"]
+            self.levels[level] = {
+                self.DX: lev_dx,
+                self.DT: group_atts["dt"],
+                self.REF_RATIO: group_atts["ref_ratio"],
+                self.BOXES: list(boxes),
+            }
 
             # Some attributes on level 0 apply to whole hierarchy
             if level == 0:
-                self.time = group_atts['time']
+                self.time = group_atts["time"]
 
-                self.prob_domain = group_atts['prob_domain']
+                self.prob_domain = group_atts["prob_domain"]
 
-                self.domain_size = [self.prob_domain[i] * self.levels[level][self.DX] for i in
-                                    range(0, len(self.prob_domain))]
+                self.domain_size = [
+                    self.prob_domain[i] * self.levels[level][self.DX]
+                    for i in range(0, len(self.prob_domain))
+                ]
 
                 # Moving to ND
                 self.full_domain_size = self.domain_size
@@ -217,9 +226,11 @@ class PltFile:
             # Important to do it like this for refined levels, where the whole domain isn't covered with data
             size = []
             for i in range(self.space_dim):
-                lev_dom_box_dir = np.arange(self.full_domain_size[i] + lev_dx / 2,
-                                            self.full_domain_size[i + self.space_dim] - lev_dx / 2,
-                                            lev_dx)
+                lev_dom_box_dir = np.arange(
+                    self.full_domain_size[i] + lev_dx / 2,
+                    self.full_domain_size[i + self.space_dim] - lev_dx / 2,
+                    lev_dx,
+                )
                 size.append(lev_dom_box_dir.size)
 
             blank_data = np.empty(tuple(size))
@@ -229,7 +240,9 @@ class PltFile:
             coords = {}
             box_size = ()
             for d in range(self.space_dim):
-                coords_dir = np.arange(self.prob_domain[d], self.prob_domain[self.space_dim + d] + 1)
+                coords_dir = np.arange(
+                    self.prob_domain[d], self.prob_domain[self.space_dim + d] + 1
+                )
                 coords[self.INDEX_COORDS_NAMES[d]] = coords_dir
                 box_size = box_size + (coords_dir.size,)  # append to tuple of sizes
 
@@ -243,11 +256,12 @@ class PltFile:
             # Create empty datasets spanning entire domain for each component
             for comp_name in self.comp_names:
                 extended_coords = coords
-                extended_coords['level'] = np.array(level)
-                dims = self.INDEX_COORDS_NAMES[:self.space_dim]
+                extended_coords["level"] = np.array(level)
+                dims = self.INDEX_COORDS_NAMES[: self.space_dim]
                 # dims = dims[::-1]  # reverse list so we have k, j, i etc
-                ds_dom_box[comp_name] = xr.DataArray(blank_data, dims=dims,  # dims=['j', 'i'],
-                                                     coords=extended_coords)
+                ds_dom_box[comp_name] = xr.DataArray(
+                    blank_data, dims=dims, coords=extended_coords  # dims=['j', 'i'],
+                )
 
             ds_boxes = [ds_dom_box]
 
@@ -260,14 +274,19 @@ class PltFile:
                 lo_vals = [lev_dx * (0.5 + i) for i in lo_indices]
                 hi_vals = [lev_dx * (0.5 + i) for i in hi_indices]
 
-                end_points = [[lo_vals[i] - lev_dx / 2, hi_vals[i] + lev_dx / 2] for i in range(self.space_dim)]
+                end_points = [
+                    [lo_vals[i] - lev_dx / 2, hi_vals[i] + lev_dx / 2]
+                    for i in range(self.space_dim)
+                ]
 
                 # For plotting level outlines
 
                 # Construct vertices in n dimensions
                 polygon_vertices_auto = list(product(*end_points))
-                polygon_vertices_auto = sorted(polygon_vertices_auto,
-                                               key=lambda x: np.arctan(x[1] / max(abs(x[0]), 0.0001)))
+                polygon_vertices_auto = sorted(
+                    polygon_vertices_auto,
+                    key=lambda x: np.arctan(x[1] / max(abs(x[0]), 0.0001)),
+                )
 
                 poly = Polygon(polygon_vertices_auto)
                 if poly.is_valid:
@@ -287,7 +306,7 @@ class PltFile:
 
                 # For plt files, data is sorted by box then by component
 
-                data = level_group['data:datatype=0']
+                data = level_group["data:datatype=0"]
 
                 # Some other stuff we can get, but don't at the moment:
                 # data_offsets = level_group['data:offsets=0']
@@ -302,12 +321,20 @@ class PltFile:
 
                 for box in self.levels[level][self.BOXES]:
                     lo_indices = [box[i] for i in range(self.space_dim)]
-                    hi_indices = [box[i] for i in range(self.space_dim, 2 * self.space_dim)]
+                    hi_indices = [
+                        box[i] for i in range(self.space_dim, 2 * self.space_dim)
+                    ]
 
-                    n_cells_dir = [hi_indices[d] + 1 - lo_indices[d] for d in range(self.space_dim)]
+                    n_cells_dir = [
+                        hi_indices[d] + 1 - lo_indices[d] for d in range(self.space_dim)
+                    ]
 
-                    num_box_cells = np.prod(n_cells_dir)  # effectively nx * ny * nz * ...
-                    num_cells = num_box_cells * num_comps  # also multiply by number of components
+                    num_box_cells = np.prod(
+                        n_cells_dir
+                    )  # effectively nx * ny * nz * ...
+                    num_cells = (
+                        num_box_cells * num_comps
+                    )  # also multiply by number of components
 
                     # Now split into individual components
                     # data contains all fields on this level, sort into individual fields
@@ -322,12 +349,21 @@ class PltFile:
                         # print('Num cells in a box: ' + str(num_box_cells))
                         comp_offset_finish = comp_offset_start + num_box_cells
 
-                        indices = [offset + comp_offset_start, offset + comp_offset_finish]
+                        indices = [
+                            offset + comp_offset_start,
+                            offset + comp_offset_finish,
+                        ]
 
                         comp_offset_start = comp_offset_finish
 
-                        ds_box[comp_name] = self.get_box_comp_data(data_unshaped, level,
-                                                                   indices, comp_name, n_cells_dir, coords)
+                        ds_box[comp_name] = self.get_box_comp_data(
+                            data_unshaped,
+                            level,
+                            indices,
+                            comp_name,
+                            n_cells_dir,
+                            coords,
+                        )
 
                     # Move onto next box
                     offset = offset + num_cells
@@ -345,9 +381,13 @@ class PltFile:
                 for box in self.levels[level][self.BOXES]:
                     lo_indices, hi_indices = self.get_indices(box)
 
-                    n_cells_dir = [hi_indices[d] + 1 - lo_indices[d] for d in range(self.space_dim)]
+                    n_cells_dir = [
+                        hi_indices[d] + 1 - lo_indices[d] for d in range(self.space_dim)
+                    ]
 
-                    num_box_cells = np.prod(n_cells_dir)  # effectively nx * ny * nz * ...
+                    num_box_cells = np.prod(
+                        n_cells_dir
+                    )  # effectively nx * ny * nz * ...
                     # num_cells = num_box_cells * num_comps  # also multiply by number of components
 
                     # num_domain_cells = num_box_cells * num_boxes
@@ -365,24 +405,29 @@ class PltFile:
                         component = 0
 
                         # Need to get data differently if this is a vector
-                        is_vector = (comp_name[0] == 'x' or comp_name[0] == 'y' or comp_name[
-                            0] == 'z' and sum([comp_name[1:] in x for x in self.comp_names]) == self.space_dim)
+                        is_vector = (
+                            comp_name[0] == "x"
+                            or comp_name[0] == "y"
+                            or comp_name[0] == "z"
+                            and sum([comp_name[1:] in x for x in self.comp_names])
+                            == self.space_dim
+                        )
                         if is_vector:
-                            if comp_name[0] == 'x':
+                            if comp_name[0] == "x":
                                 component = 0
 
-                            elif comp_name[0] == 'y':
+                            elif comp_name[0] == "y":
                                 component = 1
-                            elif comp_name[0] == 'z':
+                            elif comp_name[0] == "z":
                                 component = 2
 
                             # Hardwired to 2D for now
                             num_comps = self.space_dim
 
                             # This is the data for this component in all boxes
-                            data = level_group[comp_name[1:] + ':datatype=0']
+                            data = level_group[comp_name[1:] + ":datatype=0"]
                         else:
-                            data = level_group[comp_name + ':datatype=0']
+                            data = level_group[comp_name + ":datatype=0"]
                             component = 0
 
                             num_comps = 1
@@ -406,8 +451,14 @@ class PltFile:
 
                         # comp_offset_start = comp_offset_finish
 
-                        ds_box[comp_name] = self.get_box_comp_data(data_unshaped, level,
-                                                                   indices, comp_name, n_cells_dir, coords)
+                        ds_box[comp_name] = self.get_box_comp_data(
+                            data_unshaped,
+                            level,
+                            indices,
+                            comp_name,
+                            n_cells_dir,
+                            coords,
+                        )
 
                         # component_offset = component_offset + (num_box_cells*num_comps)
 
@@ -423,7 +474,7 @@ class PltFile:
             # Update will replace in place
             first_box = 1
             ds_level = ds_boxes[first_box]
-            for b in ds_boxes[first_box + 1:]:
+            for b in ds_boxes[first_box + 1 :]:
                 # b = b.transpose()
 
                 ds_level = ds_level.combine_first(b)
@@ -450,26 +501,30 @@ class PltFile:
             #     ds_level = xr.auto_combine(ds_boxes[1:])
 
             # Create x,y,z, coordinates
-            x_y_coords_names = ['x', 'y', 'z']
+            x_y_coords_names = ["x", "y", "z"]
 
             for d in range(self.space_dim):
                 # Factor of 0.5 accounts for cell centering
-                ds_level.coords[x_y_coords_names[d]] = (ds_level.coords[self.INDEX_COORDS_NAMES[d]] + 0.5) * lev_dx
+                ds_level.coords[x_y_coords_names[d]] = (
+                    ds_level.coords[self.INDEX_COORDS_NAMES[d]] + 0.5
+                ) * lev_dx
             # ds_level.coords['x'] = ds_level.coords['i'] * lev_dx
             # ds_level.coords['y'] = ds_level.coords['j'] * lev_dx
 
             if zero_x:
-                ds_level.coords['x'] = ds_level.coords['x'] - min(ds_level.coords['x'])
+                ds_level.coords["x"] = ds_level.coords["x"] - min(ds_level.coords["x"])
 
             # Swap i,j,k to x,y,z coordinates
             for d in range(self.space_dim):
-                ds_level = ds_level.swap_dims({self.INDEX_COORDS_NAMES[d]: x_y_coords_names[d]})
+                ds_level = ds_level.swap_dims(
+                    {self.INDEX_COORDS_NAMES[d]: x_y_coords_names[d]}
+                )
 
             # ds_level = ds_level.swap_dims({'i': 'x'})
             # ds_level = ds_level.swap_dims({'j': 'y'})
 
             # TODO: should level be an attribute or co-ordinate? need to try with actual AMR data
-            ds_level.attrs['level'] = level
+            ds_level.attrs["level"] = level
 
             ds_levels.append(ds_level)
 
@@ -485,12 +540,14 @@ class PltFile:
 
         return coordinates
 
-    def get_box_comp_data(self, data_unshaped, level, indices, comp_name, n_cells_dir, coords):
+    def get_box_comp_data(
+        self, data_unshaped, level, indices, comp_name, n_cells_dir, coords
+    ):
 
-        data_box_comp = data_unshaped[indices[0]:indices[1]]
+        data_box_comp = data_unshaped[indices[0] : indices[1]]
 
         if len(data_box_comp) == 0:
-            print('ERROR - no data in box')
+            print("ERROR - no data in box")
 
         # Chombo data is indexed in reverse (i.e. data[k, j, i]), so whilst we have n_cells_dir = [Nx, Ny, Nz],
         # we need to reshape according to [Nz, Ny, Nx] before then transposing to get
@@ -506,14 +563,14 @@ class PltFile:
 
         # Check if scalar or vector
         trimmed_comp_names = [n[1:] for n in self.comp_names]
-        field_type = 'scalar'
-        if comp_name[0] in ('x', 'y', 'z') and comp_name[1:] in trimmed_comp_names:
-            field_type = 'vector'
+        field_type = "scalar"
+        if comp_name[0] in ("x", "y", "z") and comp_name[1:] in trimmed_comp_names:
+            field_type = "vector"
 
-        dim_list = self.INDEX_COORDS_NAMES[:self.space_dim]
+        dim_list = self.INDEX_COORDS_NAMES[: self.space_dim]
         # dim_list = dim_list[::-1]
         extended_coords = coords
-        extended_coords['level'] = level
+        extended_coords["level"] = level
 
         # It's really unclear when we do and don't need to transpose
         # reshaped_data = reshaped_data.transpose()
@@ -523,9 +580,12 @@ class PltFile:
             reshaped_data = reshaped_data.transpose()
             # dim_list = dim_list[::-1]
 
-        xarr_component_box = xr.DataArray(reshaped_data, dims=dim_list,  # ['j', 'i'],
-                                          coords=extended_coords,  # {'i': i_box, 'j': j_box, 'level': level},
-                                          attrs={'field_type': field_type})
+        xarr_component_box = xr.DataArray(
+            reshaped_data,
+            dims=dim_list,  # ['j', 'i'],
+            coords=extended_coords,  # {'i': i_box, 'j': j_box, 'level': level},
+            attrs={"field_type": field_type},
+        )
 
         return xarr_component_box
 
@@ -545,10 +605,7 @@ class PltFile:
 
         # Default colors
         if not colors:
-            colors = [[0, 0, 0, 1.0],
-                      [1, 0, 0, 1.0],
-                      [0, 1, 0, 1.0],
-                      [0, 0, 1, 1.0]]
+            colors = [[0, 0, 0, 1.0], [1, 0, 0, 1.0], [0, 1, 0, 1.0], [0, 0, 1, 1.0]]
 
         ec = colors[level][:]
 
@@ -568,8 +625,8 @@ class PltFile:
 
     @staticmethod
     def get_mesh_grid_n(arr, grow=0):
-        x = np.array(arr.coords['x'])
-        y = np.array(arr.coords['y'])
+        x = np.array(arr.coords["x"])
+        y = np.array(arr.coords["y"])
 
         x_min = x[0]
         x_max = x[-1]
@@ -586,8 +643,8 @@ class PltFile:
 
     @staticmethod
     def get_mesh_grid_xarray(arr, grow=False):
-        x = np.array(arr.coords['x'])
-        y = np.array(arr.coords['y'])
+        x = np.array(arr.coords["x"])
+        y = np.array(arr.coords["y"])
 
         dx = float(x[1] - x[0])
         dy = float(y[1] - y[0])
@@ -606,7 +663,7 @@ class PltFile:
         python indexing. We now do this by default. """
 
         if self.python_index_ordering:
-            rotate_dims = (not rotate_dims)
+            rotate_dims = not rotate_dims
 
         return rotate_dims
 
@@ -624,8 +681,8 @@ class PltFile:
         field_array = np.array(field)
         grid_size = field_array.shape
 
-        x_coords = np.array(field.coords['x'])
-        y_coords = np.array(field.coords['y'])
+        x_coords = np.array(field.coords["x"])
+        y_coords = np.array(field.coords["y"])
 
         dx = np.abs(x_coords[1] - x_coords[0])
 
@@ -633,12 +690,16 @@ class PltFile:
             extend = dx / 2
         else:
             extend = 0
-        y, x = np.mgrid[slice(min(x_coords) - extend, max(x_coords) + extend, dx),
-                        slice(min(y_coords) - extend, max(y_coords) + extend, dx)]
+        y, x = np.mgrid[
+            slice(min(x_coords) - extend, max(x_coords) + extend, dx),
+            slice(min(y_coords) - extend, max(y_coords) + extend, dx),
+        ]
 
         coord_max = [(grid_size[i] + 1) * dx for i in range(0, self.space_dim)]
         grid_spacing = [coord_max[i] / grid_size[i] for i in range(0, self.space_dim)]
-        grids = np.mgrid[[slice(0, coord_max[i], grid_spacing[i]) for i in range(0, self.space_dim)]]
+        grids = np.mgrid[
+            [slice(0, coord_max[i], grid_spacing[i]) for i in range(0, self.space_dim)]
+        ]
 
         if self.space_dim == 3:
             x = grids[0]
@@ -689,26 +750,28 @@ class PltFile:
     def get_level_data(self, field, level=0, valid_only=False):
 
         if len(self.comp_names) == 0:
-            print('No data loaded, perhaps you meant to call PltFile.load_data() first? ')
+            print(
+                "No data loaded, perhaps you meant to call PltFile.load_data() first? "
+            )
 
         if self.data_load_method == self.YT:
             pass
             # TODO: write this
 
         if not self.data_loaded:
-            print('Data not loaded')
+            print("Data not loaded")
             return
 
         available_comps = list(self.ds_levels[0].keys())
 
         if field not in available_comps:
-            print('Field: %s not found. The following fields do exist: ' % field)
+            print("Field: %s not found. The following fields do exist: " % field)
             # print(self.data.keys())
             print(available_comps)
 
-            if field == 'LiquidSalinity' and 'Liquid concentration' in available_comps:
-                print('Using Liquid concentration instead')
-                field = 'Liquid concentration'
+            if field == "LiquidSalinity" and "Liquid concentration" in available_comps:
+                print("Using Liquid concentration instead")
+                field = "Liquid concentration"
             else:
                 return
 
@@ -725,8 +788,14 @@ class PltFile:
             if valid_only and level < self.num_levels - 1:
                 coarseness = self.levels[level][self.REF_RATIO]
                 fine_level = np.array(self.ds_levels[level + 1][field])
-                temp = fine_level.reshape((fine_level.shape[0] // coarseness, coarseness,
-                                           fine_level.shape[1] // coarseness, coarseness))
+                temp = fine_level.reshape(
+                    (
+                        fine_level.shape[0] // coarseness,
+                        coarseness,
+                        fine_level.shape[1] // coarseness,
+                        coarseness,
+                    )
+                )
                 coarse_fine = np.sum(temp, axis=(1, 3))
 
                 isnan = np.isnan(coarse_fine)
@@ -736,9 +805,9 @@ class PltFile:
             # By default, swap to python indexing
             if self.python_index_ordering:
                 if self.space_dim == 3:
-                    ld = ld.transpose('z', 'y', 'x')
+                    ld = ld.transpose("z", "y", "x")
                 elif self.space_dim == 2:
-                    ld = ld.transpose('y', 'x')
+                    ld = ld.transpose("y", "x")
 
         else:
             ld = self.single_box(field, level)
@@ -747,9 +816,9 @@ class PltFile:
 
         # If this is the x-component of a vector, and we're reflecting, we need to also make the field negative
         if self.reflect:
-            if field[0] == 'x':
+            if field[0] == "x":
                 ld = -ld
-            elif field == 'streamfunction':
+            elif field == "streamfunction":
                 ld = -ld
 
         return ld
@@ -772,7 +841,7 @@ class PltFile:
             data = np.flip(data, 0)
 
             # reset the x coordinate
-            data = data.assign_coords(x=np.flip(data.coords['x']))
+            data = data.assign_coords(x=np.flip(data.coords["x"]))
 
         return data
 
@@ -782,17 +851,17 @@ class PltFile:
 
         if self.data_load_method == self.NATIVE:
 
-            cmap = pyplot.get_cmap('PiYG')
+            cmap = pyplot.get_cmap("PiYG")
 
             ld = self.get_level_data(field, 0)
             x, y = self.get_mesh_grid()
             img = pyplot.pcolormesh(x, y, ld, cmap=cmap)
 
             # make a color bar
-            pyplot.colorbar(img, cmap=cmap, label='')
+            pyplot.colorbar(img, cmap=cmap, label="")
 
-            pyplot.xlabel('$x$')
-            pyplot.xlabel('$z$')
+            pyplot.xlabel("$x$")
+            pyplot.xlabel("$z$")
 
         else:
             pass
@@ -846,26 +915,28 @@ class PltFile:
         # First get parameters
 
         if self.inputs is None:
-            print('No inputs file available, so do not know parameters and cannot compute diagnostic variables')
+            print(
+                "No inputs file available, so do not know parameters and cannot compute diagnostic variables"
+            )
             sys.exit(-1)
 
-        conc_ratio = float(self.inputs['parameters.compositionRatio'])
-        stefan = float(self.inputs['parameters.stefan'])
-        cp = float(self.inputs['parameters.specificHeatRatio'])
-        if 'parameters.waterDistributionCoeff' in self.inputs.keys():
-            pc = float(self.inputs['parameters.waterDistributionCoeff'])
+        conc_ratio = float(self.inputs["parameters.compositionRatio"])
+        stefan = float(self.inputs["parameters.stefan"])
+        cp = float(self.inputs["parameters.specificHeatRatio"])
+        if "parameters.waterDistributionCoeff" in self.inputs.keys():
+            pc = float(self.inputs["parameters.waterDistributionCoeff"])
         else:
             pc = 1e-5
 
         theta_eutectic = 0.0
 
         for level in range(0, self.num_levels):
-            enthalpy_ds = self.get_level_data('Enthalpy', level)
-            bulk_salinity_ds = self.get_level_data('Bulk concentration', level)
+            enthalpy_ds = self.get_level_data("Enthalpy", level)
+            bulk_salinity_ds = self.get_level_data("Bulk concentration", level)
 
-            enthalpy_eutectic = enthalpy_ds.copy(deep=True).rename('Enthalpy eutectic')
-            enthalpy_solidus = enthalpy_ds.copy(deep=True).rename('Enthalpy solidus')
-            enthalpy_liquidus = enthalpy_ds.copy(deep=True).rename('Enthalpy liquidus')
+            enthalpy_eutectic = enthalpy_ds.copy(deep=True).rename("Enthalpy eutectic")
+            enthalpy_solidus = enthalpy_ds.copy(deep=True).rename("Enthalpy solidus")
+            enthalpy_liquidus = enthalpy_ds.copy(deep=True).rename("Enthalpy liquidus")
 
             # porosity = enthalpy.copy(deep=True).rename('Porosity')
             # temperature = enthalpy.copy(deep=True).rename('Temperature')
@@ -885,19 +956,28 @@ class PltFile:
             solid_salinity = np.empty(enthalpy.shape)
 
             # Now compute bounding energies
-            print('Computing bounding energy')
+            print("Computing bounding energy")
             for idx, _ in np.ndenumerate(enthalpy):
-                eutectic_porosity = (conc_ratio + bulk_salinity[idx]) / (theta_eutectic + conc_ratio)
-                enthalpy_eutectic[idx] = eutectic_porosity * (stefan + theta_eutectic * (1 - cp)) + cp * theta_eutectic
-                enthalpy_solidus[idx] = cp * (theta_eutectic + max(0.0, (-bulk_salinity[idx] - conc_ratio) / pc))
-                enthalpy_liquidus[idx] = stefan - bulk_salinity[idx] + theta_eutectic + theta_eutectic
+                eutectic_porosity = (conc_ratio + bulk_salinity[idx]) / (
+                    theta_eutectic + conc_ratio
+                )
+                enthalpy_eutectic[idx] = (
+                    eutectic_porosity * (stefan + theta_eutectic * (1 - cp))
+                    + cp * theta_eutectic
+                )
+                enthalpy_solidus[idx] = cp * (
+                    theta_eutectic + max(0.0, (-bulk_salinity[idx] - conc_ratio) / pc)
+                )
+                enthalpy_liquidus[idx] = (
+                    stefan - bulk_salinity[idx] + theta_eutectic + theta_eutectic
+                )
 
             # eutectic_porosity = (conc_ratio + bulk_salinity) / (theta_eutectic + conc_ratio)
             # enthalpy_eutectic = eutectic_porosity * (stefan + theta_eutectic * (1 - cp)) + cp * theta_eutectic
             # enthalpy_solidus = cp * (theta_eutectic + np.max(0.0, (-bulk_salinity - conc_ratio) / pc))
             # enthalpy_liquidus = stefan - bulk_salinity + theta_eutectic + theta_eutectic
 
-            print('Computing diagnostic variables')
+            print("Computing diagnostic variables")
             # Compute diagnostic variables
             # for j in range(cols):
             #
@@ -911,22 +991,30 @@ class PltFile:
                     liquid_salinity[idx] = 0.0
                     solid_salinity[idx] = bulk_salinity[idx]
                 elif enthalpy[idx] <= enthalpy_eutectic[idx]:
-                    porosity[idx] = (enthalpy[idx] - theta_eutectic * cp) / (stefan + theta_eutectic * (1 - cp))
+                    porosity[idx] = (enthalpy[idx] - theta_eutectic * cp) / (
+                        stefan + theta_eutectic * (1 - cp)
+                    )
                     temperature[idx] = theta_eutectic
                     liquid_salinity[idx] = theta_eutectic
                     solid_salinity[idx] = bulk_salinity[idx] / (1 - porosity[idx])
                 elif enthalpy[idx] < enthalpy_liquidus[idx]:
                     a = conc_ratio * (cp - 1) + stefan * (pc - 1)
-                    b = conc_ratio * (1 - 2 * cp) + enthalpy[idx] * (1 - pc) \
-                        - bulk_salinity[idx] * (cp - 1) - pc * stefan
+                    b = (
+                        conc_ratio * (1 - 2 * cp)
+                        + enthalpy[idx] * (1 - pc)
+                        - bulk_salinity[idx] * (cp - 1)
+                        - pc * stefan
+                    )
                     c = (bulk_salinity[idx] + conc_ratio) * cp + pc * enthalpy[idx]
                     porosity[idx] = (-b - np.sqrt(b * b - 4 * a * c)) / (2 * a)
 
-                    liquid_salinity[idx] = (bulk_salinity[idx] + conc_ratio * (1 - porosity[idx])) / (
-                            porosity[idx] + pc * (1 - porosity[idx]))
+                    liquid_salinity[idx] = (
+                        bulk_salinity[idx] + conc_ratio * (1 - porosity[idx])
+                    ) / (porosity[idx] + pc * (1 - porosity[idx]))
                     temperature[idx] = -liquid_salinity[idx]
-                    solid_salinity[idx] = (pc * bulk_salinity[idx] - conc_ratio * porosity[idx]) / (
-                            porosity[idx] + pc * (1 - porosity[idx]))
+                    solid_salinity[idx] = (
+                        pc * bulk_salinity[idx] - conc_ratio * porosity[idx]
+                    ) / (porosity[idx] + pc * (1 - porosity[idx]))
                 else:
                     porosity[idx] = 1.0
                     temperature[idx] = enthalpy[idx] - stefan
@@ -935,51 +1023,59 @@ class PltFile:
 
             # Finally, save data into boxes
 
-            ds_porosity = enthalpy_ds.copy(deep=True).rename('Porosity')
+            ds_porosity = enthalpy_ds.copy(deep=True).rename("Porosity")
             ds_porosity.values = porosity
 
-            ds_temperature = enthalpy_ds.copy(deep=True).rename('Temperature')
+            ds_temperature = enthalpy_ds.copy(deep=True).rename("Temperature")
             ds_temperature.values = temperature
 
-            ds_sl = enthalpy_ds.copy(deep=True).rename('Liquid concentration')
+            ds_sl = enthalpy_ds.copy(deep=True).rename("Liquid concentration")
             ds_sl.values = liquid_salinity
 
-            ds_ss = enthalpy_ds.copy(deep=True).rename('Solid concentration')
+            ds_ss = enthalpy_ds.copy(deep=True).rename("Solid concentration")
             ds_ss.values = solid_salinity
 
-            self.ds_levels[level]['Porosity'] = ds_porosity
-            self.ds_levels[level]['Temperature'] = ds_temperature
-            self.ds_levels[level]['Liquid concentration'] = ds_sl
-            self.ds_levels[level]['Solid concentration'] = ds_ss
+            self.ds_levels[level]["Porosity"] = ds_porosity
+            self.ds_levels[level]["Temperature"] = ds_temperature
+            self.ds_levels[level]["Liquid concentration"] = ds_sl
+            self.ds_levels[level]["Solid concentration"] = ds_ss
 
             # available_comps = list(self.ds_levels[0].keys())
             # print('Available comps: %s' % str(available_comps))
 
-    def get_permeability(self, permeability_function='kozeny', rotate_dims=False):
+    def get_permeability(self, permeability_function="kozeny", rotate_dims=False):
 
         rotate_dims = self.get_rotate_dims(rotate_dims)
 
-        porosity = self.get_data('Porosity', rotate_dims=rotate_dims)
+        porosity = self.get_data("Porosity", rotate_dims=rotate_dims)
 
-        if permeability_function == 'kozeny':
+        if permeability_function == "kozeny":
 
             # Cap max porosity just below one to avoid dividing by 0
             porosity = np.clip(porosity, 0, 1 - 10 ** (-10))
 
             liquid_permeability = porosity ** 3 / (1 - porosity) ** 2
 
-            if 'parameters.heleShawPermeability' in self.inputs.keys():
-                hele_shaw_permeability = float(self.inputs['parameters.heleShawPermeability'])
-            elif 'parameters.nonDimReluctance' in self.inputs.keys():
-                hele_shaw_permeability = 1 / float(self.inputs['parameters.nonDimReluctance'])
+            if "parameters.heleShawPermeability" in self.inputs.keys():
+                hele_shaw_permeability = float(
+                    self.inputs["parameters.heleShawPermeability"]
+                )
+            elif "parameters.nonDimReluctance" in self.inputs.keys():
+                hele_shaw_permeability = 1 / float(
+                    self.inputs["parameters.nonDimReluctance"]
+                )
             else:
-                print('Unable to determine Hele-Shaw permeability, cannot find either parameters.heleShawPermeability '
-                      'or parameters.nonDimReluctance in the inputs file. ')
+                print(
+                    "Unable to determine Hele-Shaw permeability, cannot find either parameters.heleShawPermeability "
+                    "or parameters.nonDimReluctance in the inputs file. "
+                )
                 sys.exit(-1)
 
-            total_permeability = (hele_shaw_permeability ** (-1) + liquid_permeability ** (-1)) ** (-1)
+            total_permeability = (
+                hele_shaw_permeability ** (-1) + liquid_permeability ** (-1)
+            ) ** (-1)
 
-        elif permeability_function == 'cubic':
+        elif permeability_function == "cubic":
             total_permeability = porosity ** 3
 
         else:
@@ -989,7 +1085,7 @@ class PltFile:
 
     def num_channels(self, z_ml):
 
-        bulk_salinity = self.get_level_data('Bulk concentration')
+        bulk_salinity = self.get_level_data("Bulk concentration")
 
         peak_height_scaling = 2.0
         separation = 5  # minimum pixel separation
@@ -1002,8 +1098,10 @@ class PltFile:
 
             separation = 5  # minimum pixel separation
 
-            bulk_s_slice = bulk_salinity.sel(y=z_ml, method='nearest')
-            vel_slice = np.array(self.get_level_data('yDarcy velocity').sel(y=z_ml, method='nearest'))
+            bulk_s_slice = bulk_salinity.sel(y=z_ml, method="nearest")
+            vel_slice = np.array(
+                self.get_level_data("yDarcy velocity").sel(y=z_ml, method="nearest")
+            )
             slice_arr = np.array(bulk_s_slice) * vel_slice
 
             prominence = float(slice_arr.max()) / 4.0
@@ -1025,9 +1123,11 @@ class PltFile:
             return num_peaks
         else:
 
-            bulk_s_slice = bulk_salinity.sel(z=z_ml, method='nearest')
+            bulk_s_slice = bulk_salinity.sel(z=z_ml, method="nearest")
 
-            vel_slice = np.array(self.get_level_data('zDarcy velocity').sel(z=z_ml, method='nearest'))
+            vel_slice = np.array(
+                self.get_level_data("zDarcy velocity").sel(z=z_ml, method="nearest")
+            )
 
             slice_arr = np.array(bulk_s_slice) * vel_slice
             # slice_arr = slice_arr - slice_arr.min()
@@ -1035,8 +1135,12 @@ class PltFile:
             peak_height = float(slice_arr.max()) / peak_height_scaling
             # print('threshold_abs = %s' % peak_height)
 
-            coordinates = peak_local_max(slice_arr, min_distance=separation,
-                                         threshold_abs=peak_height, exclude_border=False)
+            coordinates = peak_local_max(
+                slice_arr,
+                min_distance=separation,
+                threshold_abs=peak_height,
+                exclude_border=False,
+            )
 
             num_peaks = len(coordinates)
 
@@ -1054,11 +1158,11 @@ class PltFile:
 
     def compute_mush_liquid_interface(self):
 
-        porosity = self.get_level_data('Porosity')
+        porosity = self.get_level_data("Porosity")
         if self.space_dim == 2:
-            z = porosity.coords['y']
+            z = porosity.coords["y"]
         else:
-            z = porosity.coords['z']
+            z = porosity.coords["z"]
 
         porosity = np.array(porosity)
         z_interface = np.nan
@@ -1073,6 +1177,7 @@ class PltFile:
             # iterate over everything but vertical index (which is in the last index)
             iterate_shape = porosity.shape[:-1]
             import itertools
+
             liquid_z_indices = []
             # for ix in np.arange(0, s[1]):
 
@@ -1085,7 +1190,7 @@ class PltFile:
                 elif self.space_dim == 3:
                     vals = np.argwhere(porosity[ind[0], ind[1], :] < 1.0)
                 else:
-                    print('Unknown number of dimensions: %d' % self.space_dim)
+                    print("Unknown number of dimensions: %d" % self.space_dim)
                     sys.exit(-1)
 
                 if vals.any():
@@ -1105,7 +1210,7 @@ class PltFile:
                 elif self.space_dim == 3:
                     vals = np.argwhere(porosity[ind[0], ind[1], :] < 1e-6)
                 else:
-                    print('Unknown dimension: %d' % self.space_dim)
+                    print("Unknown dimension: %d" % self.space_dim)
                     sys.exit(-1)
 
                 if vals.any():
@@ -1167,16 +1272,34 @@ def latexify(fig_width=None, fig_height=None):
         fig_height = fig_width * golden_mean  # height in inches
 
     # Need the mathsrfs package for \mathscr if text.usetex = True
-    params = {'text.latex.preamble': ['\\usepackage{gensymb}', '\\usepackage{mathrsfs}', '\\usepackage{amsmath}'],
-              'axes.labelsize': font_size, 'axes.titlesize': font_size, 'legend.fontsize': font_size,
-              'xtick.labelsize': font_size, 'ytick.labelsize': font_size, 'font.size': font_size,
-              'xtick.direction': 'in', 'ytick.direction': 'in', 'lines.markersize': 3, 'lines.linewidth': linewidth,
-              'text.usetex': True, 'figure.figsize': [fig_width, fig_height], 'font.family': 'serif', 'backend': 'ps'}
+    params = {
+        "text.latex.preamble": [
+            "\\usepackage{gensymb}",
+            "\\usepackage{mathrsfs}",
+            "\\usepackage{amsmath}",
+        ],
+        "axes.labelsize": font_size,
+        "axes.titlesize": font_size,
+        "legend.fontsize": font_size,
+        "xtick.labelsize": font_size,
+        "ytick.labelsize": font_size,
+        "font.size": font_size,
+        "xtick.direction": "in",
+        "ytick.direction": "in",
+        "lines.markersize": 3,
+        "lines.linewidth": linewidth,
+        "text.usetex": True,
+        "figure.figsize": [fig_width, fig_height],
+        "font.family": "serif",
+        "backend": "ps",
+    }
 
-    if 'osx' in socket.gethostname():
+    if "osx" in socket.gethostname():
         # params['text.usetex'] = False
-        params['pgf.texsystem'] = 'pdflatex'
-        os.environ['PATH'] = os.environ['PATH'] + ':/Library/TeX/texbin/:/usr/local/bin/'
+        params["pgf.texsystem"] = "pdflatex"
+        os.environ["PATH"] = (
+            os.environ["PATH"] + ":/Library/TeX/texbin/:/usr/local/bin/"
+        )
 
     matplotlib.rcParams.update(params)
 
