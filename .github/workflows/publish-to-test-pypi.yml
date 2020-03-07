@@ -19,9 +19,10 @@ jobs:
           python -m pip install -e .
 
       - name: Run unit tests before deployment
-        run:
-          cd test;
+        run: |
+          cd tests
           python -m unittest
+          cd ..
 
       - name: Install wheel
         run:
