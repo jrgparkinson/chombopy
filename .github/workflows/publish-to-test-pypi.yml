@@ -20,7 +20,7 @@ jobs:
 
       - name: Run unit tests before deployment
         run:
-          cd test
+          cd test;
           python -m unittest
 
       - name: Install wheel
