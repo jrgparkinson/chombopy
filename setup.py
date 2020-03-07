@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 
 setup(name='chombopy',
-      version='0.1.1',
+      version='0.1.2',
       description='Running, analysing and plotting Chombo simulations',
       url='https://github.com/jrgparkinson/mushy-layer',
       author='Jamie Parkinson',
