@@ -1,9 +1,6 @@
 import unittest
 from chombopy import inputs
 
-# import mock
-import os
-
 # Run with e.g.
 # coverage run -m unittest testUtils.py; coverage html
 # python -m unittest
