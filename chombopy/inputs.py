@@ -1,25 +1,26 @@
 import re
 import math
 
+
 def read_inputs(inputs_file):
     """ Load up an inputs file and parse it into a dictionary """
 
     params = {}
 
     # Read in the file
-    with open(inputs_file, 'r') as f:
+    with open(inputs_file, "r") as f:
         file_data = f.readlines()
 
     for line in file_data:
         # print(line)
         # Ignore lines that are commented out
-        if line.startswith('#'):
+        if line.startswith("#"):
             continue
 
         # Remove anything after a #
-        line = re.sub(r'#[^\n]*[\n]', '', line)
+        line = re.sub(r"#[^\n]*[\n]", "", line)
 
-        parts = re.findall(r'^([^=]*)=(.*)$', line)
+        parts = re.findall(r"^([^=]*)=(.*)$", line)
 
         # parts = line.split('=')
         # if len(parts) > 1:
@@ -44,7 +45,7 @@ def write_inputs(location, params, ignore_list=None, do_sort=True):
     """
      Write out a set of parameters to an inputs file
     """
-    output_file = ''
+    output_file = ""
 
     key_list = list(params.keys())
     if do_sort:
@@ -54,14 +55,14 @@ def write_inputs(location, params, ignore_list=None, do_sort=True):
         if not ignore_list or key not in ignore_list:
 
             if isinstance(params[key], list):
-                key_val = ' '.join([str(a) for a in params[key]])
+                key_val = " ".join([str(a) for a in params[key]])
 
             else:
                 key_val = str(params[key])
 
-            output_file += '\n' + key + '=' + key_val
+            output_file += "\n" + key + "=" + key_val
 
-    with open(location, 'w') as f:
+    with open(location, "w") as f:
         f.write(output_file)
 
 
@@ -94,6 +95,7 @@ def isint(value):
     except ValueError:
         return False
 
+
 def string_to_array(string, conversion=None):
     """ Convert a string separated by spaces to an array, i.e.
     a b c -> [a,b,c]
@@ -106,7 +108,7 @@ def string_to_array(string, conversion=None):
     if not conversion:
         conversion = int
 
-    parts = string.split(' ')
+    parts = string.split(" ")
     array = [conversion(i) for i in parts]
     return array
 
@@ -116,7 +118,7 @@ def array_to_string(array):
     [a,b,c] -> a b c
     """
     str_array = [str(a) for a in array]
-    string = ' '.join(str_array)
+    string = " ".join(str_array)
     return string
 
 
