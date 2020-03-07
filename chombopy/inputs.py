@@ -1,3 +1,5 @@
+import re
+import math
 
 def read_inputs(inputs_file):
     """ Load up an inputs file and parse it into a dictionary """
@@ -62,3 +64,76 @@ def write_inputs(location, params, ignore_list=None, do_sort=True):
     with open(location, 'w') as f:
         f.write(output_file)
 
+
+def isfloat(value):
+    """
+    Determine if value is a float
+    """
+    try:
+        floatVal = float(value)
+        if floatVal == value or str(floatVal) == value:
+            return True
+        else:
+            return False
+    except ValueError:
+        return False
+
+
+def isint(value):
+    """
+    Determines if value is an integer
+    """
+
+    try:
+        intval = int(value)
+
+        if intval == value or str(intval) == value:
+            return True
+        else:
+            return False
+    except ValueError:
+        return False
+
+def string_to_array(string, conversion=None):
+    """ Convert a string separated by spaces to an array, i.e.
+    a b c -> [a,b,c]
+     """
+
+    if isinstance(string, list):
+        return string
+
+    # Default: convert to list of ints
+    if not conversion:
+        conversion = int
+
+    parts = string.split(' ')
+    array = [conversion(i) for i in parts]
+    return array
+
+
+def array_to_string(array):
+    """ Convert an array to a string with the elements separated by spaces i.e.
+    [a,b,c] -> a b c
+    """
+    str_array = [str(a) for a in array]
+    string = ' '.join(str_array)
+    return string
+
+
+def is_power_of_two(n):
+    """ Determine if a number if a power of 2 """
+    test = math.log(n) / math.log(2)
+
+    if round(test) == test:
+        return True
+    else:
+        return False
+
+
+def add_params(default_params, extra_params):
+    """ Add params from extra_params to defaultParams """
+
+    for k, v in extra_params.items():
+        default_params[k] = v
+
+    return default_params

@@ -9,7 +9,7 @@ import xarray as xr
 from shapely.ops import cascaded_union
 from shapely.geometry import Polygon
 import geopandas as gpd
-from inputs import read_inputs
+from chombopy.inputs import read_inputs
 import sys
 from scipy.signal import find_peaks
 from skimage.feature import peak_local_max
@@ -969,7 +969,7 @@ class PltFile:
             liquid_permeability = porosity ** 3 / (1 - porosity) ** 2
 
             if 'parameters.heleShawPermeability' in self.inputs.keys():
-                hele_shaw_permeability = self.inputs['parameters.heleShawPermeability']
+                hele_shaw_permeability = float(self.inputs['parameters.heleShawPermeability'])
             elif 'parameters.nonDimReluctance' in self.inputs.keys():
                 hele_shaw_permeability = 1 / float(self.inputs['parameters.nonDimReluctance'])
             else:

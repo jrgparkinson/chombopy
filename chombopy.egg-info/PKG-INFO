@@ -1,6 +1,6 @@
-Metadata-Version: 2.1
+Metadata-Version: 1.2
 Name: chombopy
-Version: 0.1
+Version: 0.1.1
 Summary: Running, analysing and plotting Chombo simulations
 Home-page: https://github.com/jrgparkinson/mushy-layer
 Author: Jamie Parkinson
@@ -12,4 +12,3 @@ Classifier: Programming Language :: Python :: 3
 Classifier: License :: OSI Approved :: MIT License
 Classifier: Operating System :: OS Independent
 Requires-Python: >=3.6
-Description-Content-Type: text/markdown
