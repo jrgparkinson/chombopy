@@ -25,7 +25,7 @@ write_inputs('/path/to/new_inputs', inputs)
 ### Plot files
 Chombo plot files can be read using the PltFile class:
 ```python
-from chombopy.plotfile import PltFile
+from chombopy.plotting import PltFile
 import matplotlib.pyplot as plt
 
 pf = PltFile('/path/to/file.hdf5')

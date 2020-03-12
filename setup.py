@@ -6,7 +6,7 @@ with open(path.join(this_directory, 'README.md'), encoding='utf-8') as f:
     long_description = f.read()
 
 setup(name='chombopy',
-      version='0.1.2-alpha-2',
+      version='0.1.3',
       description='Running, analysing and plotting Chombo simulations',
       long_description=long_description,
       long_description_content_type='text/markdown',
@@ -29,5 +29,8 @@ setup(name='chombopy',
                         'scikit-image>=0.16.2',
                         'xarray>=0.11.3',
                         'h5py>=2.9.0',
-                        'numpy>=1.16.0'],
+                        'numpy>=1.16.0',
+                        'sphinx',
+                        'recommonmark>=0.5.0',
+                        'm2r'],
       zip_safe=False)

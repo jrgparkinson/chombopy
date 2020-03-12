@@ -1,13 +1,16 @@
 import unittest
-from chombopy.plotfile import PltFile, latexify, latexify2
+from chombopy.plotting import PltFile
 import matplotlib.pyplot as plt
+import logging
+import os
 
 
 class TestPltFile(unittest.TestCase):
-    DATA_FILE = "data/plt000100.2d.hdf5"
-    CHK_DATA_FILE = "data/chk000100.2d.hdf5"
+    THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 
-    DATA_FILE_3D = "data/3D/plt000100.3d.hdf5"
+    DATA_FILE = os.path.join(THIS_DIR, "data/plt000100.2d.hdf5")
+    CHK_DATA_FILE = os.path.join(THIS_DIR, "data/chk000100.2d.hdf5")
+    DATA_FILE_3D = os.path.join(THIS_DIR, "data/3D/plt000100.3d.hdf5")
 
     def test_load(self):
 
@@ -22,7 +25,7 @@ class TestPltFile(unittest.TestCase):
         self.assertEqual(pf.frame, 100)
 
         # Test pretty printing object
-        print(pf)
+        logging.info(pf)
 
         # Test loading after data already loaded (should do nothing)
         pf.load_data()
@@ -51,7 +54,6 @@ class TestPltFile(unittest.TestCase):
         pf = PltFile(self.DATA_FILE)
         pf.load_data(zero_x=True)
         porosity = pf.get_level_data("Porosity")
-        latexify()
 
         fig = plt.figure()
         ax = fig.gca()
@@ -60,34 +62,8 @@ class TestPltFile(unittest.TestCase):
         # Can only execute these tests if latex is installed
         if is_installed('latex'):
             pf.plot_outlines(ax)
-
-            self.assertEqual(pf.get_field_label("Porosity"), r"$\chi$")
-
-            latexify2(5.0, 3.0)
             pf.plot_field("Porosity")
 
-    def test_diagnostics(self):
-        pf = PltFile(self.DATA_FILE, load_data=True)
-
-        pf.compute_diagnostic_vars()
-
-        pf.compute_mush_liquid_interface()
-
-        # properties = pf.channel_properties()
-
-        # num_channels = pf.num_channels(0.9)
-        # self.assertEqual(num_channels, 2)
-
-        permeability = pf.get_permeability()
-        self.assertAlmostEqual(
-            permeability.max(), pf.inputs["parameters.heleShawPermeability"], 5
-        )
-
-        permeability = pf.get_permeability("cubic")
-        self.assertEqual(permeability.max(), 1.0)
-
-        permeability = pf.get_permeability("anything else")
-        self.assertEqual(permeability, 1.0)
 
     def test_3d(self):
         pf = PltFile(self.DATA_FILE_3D, load_data=True)

@@ -3,3 +3,6 @@
 **/dist/*
 *.pyc
 *.egg-info/
+*.venv/
+*.eggs/
+*docs/_build/
