@@ -42,3 +42,16 @@ plt.pcolormesh(x, y, temperature)
 # Or you can do some analysis using the xarray/numpy functionality
 print(temperature.mean())
 ```
+
+## Documentation
+Further documentation can be found [online](https://jrgparkinson.github.io/chombopy/_build/html/). To compile the documentation locally, setup a virtual environment:
+```bash
+$ python3 -m venv .venv
+$ source .venv/bin/activate
+$ pip install
+```
+Then to build the documentation with Sphinx:
+```bash
+$ cd docs
+$ make html 
+```
