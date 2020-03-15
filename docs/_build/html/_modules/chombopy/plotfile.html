@@ -1,0 +1,1445 @@
+
+<!DOCTYPE html>
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta charset="utf-8" />
+    <title>chombopy.plotfile &#8212; chombopy 0.1.2 documentation</title>
+    <link rel="stylesheet" href="../../_static/alabaster.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    <script id="documentation_options" data-url_root="../../" src="../../_static/documentation_options.js"></script>
+    <script src="../../_static/jquery.js"></script>
+    <script src="../../_static/underscore.js"></script>
+    <script src="../../_static/doctools.js"></script>
+    <script src="../../_static/language_data.js"></script>
+    <script async="async" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/latest.js?config=TeX-AMS-MML_HTMLorMML"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+   
+  <link rel="stylesheet" href="../../_static/custom.css" type="text/css" />
+  
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9" />
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <h1>Source code for chombopy.plotfile</h1><div class="highlight"><pre>
+<span></span><span class="kn">import</span> <span class="nn">socket</span>
+<span class="kn">import</span> <span class="nn">h5py</span>
+<span class="kn">import</span> <span class="nn">matplotlib</span>
+<span class="kn">import</span> <span class="nn">numpy</span> <span class="k">as</span> <span class="nn">np</span>
+<span class="kn">from</span> <span class="nn">matplotlib</span> <span class="kn">import</span> <span class="n">pyplot</span>
+<span class="kn">import</span> <span class="nn">re</span>
+<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span> <span class="nn">logging</span>
+<span class="kn">import</span> <span class="nn">xarray</span> <span class="k">as</span> <span class="nn">xr</span>
+<span class="kn">from</span> <span class="nn">shapely.ops</span> <span class="kn">import</span> <span class="n">cascaded_union</span>
+<span class="kn">from</span> <span class="nn">shapely.geometry</span> <span class="kn">import</span> <span class="n">Polygon</span>
+<span class="kn">import</span> <span class="nn">geopandas</span> <span class="k">as</span> <span class="nn">gpd</span>
+<span class="kn">from</span> <span class="nn">chombopy.inputs</span> <span class="kn">import</span> <span class="n">read_inputs</span>
+<span class="kn">import</span> <span class="nn">sys</span>
+<span class="kn">from</span> <span class="nn">scipy.signal</span> <span class="kn">import</span> <span class="n">find_peaks</span>
+<span class="kn">from</span> <span class="nn">skimage.feature</span> <span class="kn">import</span> <span class="n">peak_local_max</span>
+<span class="kn">from</span> <span class="nn">itertools</span> <span class="kn">import</span> <span class="n">product</span>
+
+
+<span class="c1"># TODO: Fix: AMR plotting is broken at the moment</span>
+
+
+<div class="viewcode-block" id="PltFile"><a class="viewcode-back" href="../../api.html#chombopy.plotfile.PltFile">[docs]</a><span class="k">class</span> <span class="nc">PltFile</span><span class="p">:</span>
+    <span class="sd">&quot;&quot;&quot; Class to load a plot file and perform operations on it</span>
+<span class="sd">         e.g. find where brine channels are&quot;&quot;&quot;</span>
+
+    <span class="n">NUM_COMPS</span> <span class="o">=</span> <span class="s2">&quot;num_comps&quot;</span>
+    <span class="n">DATA</span> <span class="o">=</span> <span class="s2">&quot;data&quot;</span>
+    <span class="n">DX</span> <span class="o">=</span> <span class="s2">&quot;dx&quot;</span>
+    <span class="n">DT</span> <span class="o">=</span> <span class="s2">&quot;dt&quot;</span>
+    <span class="n">REF_RATIO</span> <span class="o">=</span> <span class="s2">&quot;ref_ratio&quot;</span>
+    <span class="n">BOXES</span> <span class="o">=</span> <span class="s2">&quot;boxes&quot;</span>
+
+    <span class="n">YT</span> <span class="o">=</span> <span class="s2">&quot;YT&quot;</span>
+    <span class="n">NATIVE</span> <span class="o">=</span> <span class="s2">&quot;native&quot;</span>
+    <span class="n">XARRAY</span> <span class="o">=</span> <span class="s2">&quot;xarray&quot;</span>
+
+    <span class="c1"># List of names for each direction to be used later</span>
+    <span class="n">INDEX_COORDS_NAMES</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;i&quot;</span><span class="p">,</span> <span class="s2">&quot;j&quot;</span><span class="p">,</span> <span class="s2">&quot;k&quot;</span><span class="p">,</span> <span class="s2">&quot;l&quot;</span><span class="p">,</span> <span class="s2">&quot;m&quot;</span><span class="p">]</span>  <span class="c1"># add more here if more dimensions</span>
+
+    <span class="n">indices</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">reflect</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">ds_amr</span> <span class="o">=</span> <span class="kc">None</span>
+
+    <span class="n">python_index_ordering</span> <span class="o">=</span> <span class="kc">True</span>
+
+    <span class="n">FIELD_LABEL</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="s2">&quot;Porosity&quot;</span><span class="p">:</span> <span class="sa">r</span><span class="s2">&quot;$\chi$&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;Bulk concentration&quot;</span><span class="p">:</span> <span class="sa">r</span><span class="s2">&quot;$\Theta$&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;Liquid concentration&quot;</span><span class="p">:</span> <span class="sa">r</span><span class="s2">&quot;$\Theta_l$&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;Permeability&quot;</span><span class="p">:</span> <span class="sa">r</span><span class="s2">&quot;$\Pi$&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;xAdvection velocity&quot;</span><span class="p">:</span> <span class="s2">&quot;$u$&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;yAdvection velocity&quot;</span><span class="p">:</span> <span class="s2">&quot;$w$&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;streamfunction&quot;</span><span class="p">:</span> <span class="sa">r</span><span class="s2">&quot;$\psi$&quot;</span><span class="p">,</span>
+    <span class="p">}</span>
+
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">filename</span><span class="p">,</span> <span class="n">load_data</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">inputs_file</span><span class="o">=</span><span class="s2">&quot;inputs&quot;</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">is_plot_file</span> <span class="o">=</span> <span class="kc">False</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">defined</span> <span class="o">=</span> <span class="kc">False</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">data_loaded</span> <span class="o">=</span> <span class="kc">False</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">ds</span> <span class="o">=</span> <span class="kc">None</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">data_load_method</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">XARRAY</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">ds_levels</span> <span class="o">=</span> <span class="p">[]</span>
+
+        <span class="c1"># Initialise to bogus values</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">iteration</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">max_level</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">num_levels</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">num_comps</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">space_dim</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">comp_names</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">levels</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">time</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">frame</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">prob_domain</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">domain_size</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">xarr_data</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">level_outlines</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">full_domain_size</span> <span class="o">=</span> <span class="kc">None</span>
+
+        <span class="c1"># Now read all the component names</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">data</span> <span class="o">=</span> <span class="p">{}</span>
+
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="n">filename</span><span class="p">):</span>
+            <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s1">&#39;PltFile: file does not exist &quot;</span><span class="si">%s</span><span class="s1">&quot;&#39;</span> <span class="o">%</span> <span class="n">filename</span><span class="p">)</span>
+            <span class="k">return</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">filename</span> <span class="o">=</span> <span class="n">filename</span>
+
+        <span class="c1"># Get the plot prefix and frame number assuming a format</span>
+        <span class="n">prefix_format</span> <span class="o">=</span> <span class="sa">r</span><span class="s2">&quot;([^\d\/]*)(\d+)\.\dd\.hdf5&quot;</span>
+        <span class="n">plot_file_name</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">filename</span>
+
+        <span class="n">m</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="n">prefix_format</span><span class="p">,</span> <span class="n">plot_file_name</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">m</span> <span class="ow">and</span> <span class="n">m</span><span class="o">.</span><span class="n">groups</span><span class="p">()</span> <span class="ow">and</span> <span class="nb">len</span><span class="p">(</span><span class="n">m</span><span class="o">.</span><span class="n">groups</span><span class="p">())</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">plot_prefix</span> <span class="o">=</span> <span class="n">m</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">frame</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">m</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="mi">2</span><span class="p">))</span>
+
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">plot_prefix</span> <span class="o">=</span> <span class="kc">None</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">frame</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span>
+
+        <span class="c1"># get inputs</span>
+        <span class="n">output_folder</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">abspath</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">filename</span><span class="p">,</span> <span class="s2">&quot;..&quot;</span><span class="p">))</span>
+        <span class="n">inputs_file_loc</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">output_folder</span><span class="p">,</span> <span class="n">inputs_file</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="n">inputs_file_loc</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">inputs</span> <span class="o">=</span> <span class="n">read_inputs</span><span class="p">(</span><span class="n">inputs_file_loc</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Cannot find inputs file </span><span class="si">%s</span><span class="s2">&quot;</span> <span class="o">%</span> <span class="n">inputs_file_loc</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">inputs</span> <span class="o">=</span> <span class="kc">None</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">defined</span> <span class="o">=</span> <span class="kc">True</span>
+
+        <span class="k">if</span> <span class="n">load_data</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">load_data</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="fm">__repr__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="s2">&quot;&lt;PltFile object for </span><span class="si">%s</span><span class="s2">&gt;&quot;</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">filename</span>
+
+    <span class="k">def</span> <span class="nf">load_data</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">zero_x</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">data_loaded</span><span class="p">:</span>
+            <span class="k">return</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">data_load_method</span> <span class="ow">in</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">NATIVE</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">XARRAY</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">load_data_native</span><span class="p">(</span><span class="n">zero_x</span><span class="p">)</span>
+        <span class="c1"># else:</span>
+        <span class="c1">#     self.load_data_yt()</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">data_loaded</span> <span class="o">=</span> <span class="kc">True</span>
+
+    <span class="c1"># def load_data_yt(self):</span>
+    <span class="c1">#     self.ds = yt.load(self.filename)</span>
+
+    <span class="k">def</span> <span class="nf">unload_data</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">ds_levels</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">data_loaded</span> <span class="o">=</span> <span class="kc">False</span>
+
+    <span class="c1"># noinspection PyUnresolvedReferences</span>
+    <span class="k">def</span> <span class="nf">load_data_native</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">zero_x</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+
+        <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Loading </span><span class="si">%s</span><span class="s2">&quot;</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">filename</span><span class="p">)</span>
+
+        <span class="n">h5_file</span> <span class="o">=</span> <span class="n">h5py</span><span class="o">.</span><span class="n">File</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">filename</span><span class="p">,</span> <span class="s2">&quot;r&quot;</span><span class="p">)</span>
+
+        <span class="c1"># logging.info(&#39;Loaded HDF5 file with groups: &#39; + str(h5File.keys()))</span>
+        <span class="c1"># logging.info(&#39; and attributes: &#39; + str(h5File.attrs.keys()))</span>
+
+        <span class="c1"># Get all the different bits of data from the file</span>
+        <span class="c1"># logging.info(h5File)</span>
+
+        <span class="n">chombo_group</span> <span class="o">=</span> <span class="n">h5_file</span><span class="p">[</span><span class="s2">&quot;Chombo_global&quot;</span><span class="p">]</span>
+        <span class="n">global_attrs</span> <span class="o">=</span> <span class="n">chombo_group</span><span class="o">.</span><span class="n">attrs</span>
+
+        <span class="n">attrs</span> <span class="o">=</span> <span class="n">h5_file</span><span class="o">.</span><span class="n">attrs</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">time</span> <span class="o">=</span> <span class="n">attrs</span><span class="p">[</span><span class="s2">&quot;time&quot;</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">iteration</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">attrs</span><span class="p">[</span><span class="s2">&quot;iteration&quot;</span><span class="p">])</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">max_level</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">attrs</span><span class="p">[</span><span class="s2">&quot;max_level&quot;</span><span class="p">])</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">num_levels</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">attrs</span><span class="p">[</span><span class="s2">&quot;num_levels&quot;</span><span class="p">])</span>
+        <span class="c1"># self.regrid_interval = int(attrs[&#39;regrid_interval_0&#39;])</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">num_comps</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">attrs</span><span class="p">[</span><span class="s2">&quot;num_components&quot;</span><span class="p">])</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">space_dim</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">global_attrs</span><span class="p">[</span><span class="s2">&quot;SpaceDim&quot;</span><span class="p">])</span>
+
+        <span class="c1"># Now read all the component names</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">data</span> <span class="o">=</span> <span class="p">{}</span>
+
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">num_comps</span><span class="p">):</span>
+            <span class="n">name</span> <span class="o">=</span> <span class="n">attrs</span><span class="p">[</span><span class="s2">&quot;component_&quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">i</span><span class="p">)]</span>
+            <span class="n">name</span> <span class="o">=</span> <span class="n">name</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s2">&quot;UTF-8&quot;</span><span class="p">)</span>
+
+            <span class="c1"># Some of my files have wierd xEnthalpy yEnthalpy fields, which we should skip</span>
+            <span class="k">if</span> <span class="n">name</span> <span class="o">==</span> <span class="s2">&quot;xEnthalpy&quot;</span> <span class="ow">or</span> <span class="n">name</span> <span class="o">==</span> <span class="s2">&quot;yEnthalpy&quot;</span><span class="p">:</span>
+                <span class="k">continue</span>
+
+            <span class="c1"># Previously, we treated vectors and scalars differently,</span>
+            <span class="c1"># now we just store vector components as separate scalar fields</span>
+            <span class="c1"># retained previous code (commented out below) in case I ever want it</span>
+            <span class="n">actual_name</span> <span class="o">=</span> <span class="n">name</span>
+
+            <span class="bp">self</span><span class="o">.</span><span class="n">data</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span><span class="bp">self</span><span class="o">.</span><span class="n">NUM_COMPS</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">DATA</span><span class="p">:</span> <span class="p">[]}</span>
+
+            <span class="bp">self</span><span class="o">.</span><span class="n">data</span><span class="p">[</span><span class="n">actual_name</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">DATA</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">nan</span><span class="p">]</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">num_levels</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">comp_names</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">actual_name</span><span class="p">)</span>
+
+        <span class="n">ds_levels</span> <span class="o">=</span> <span class="p">[]</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">levels</span> <span class="o">=</span> <span class="p">[{}]</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">num_levels</span>
+        <span class="k">for</span> <span class="n">level</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">num_levels</span><span class="p">):</span>
+            <span class="n">level_group</span> <span class="o">=</span> <span class="n">h5_file</span><span class="p">[</span><span class="s2">&quot;level_&quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">level</span><span class="p">)]</span>
+
+            <span class="c1"># Data is stored differently in plot files and chk files</span>
+            <span class="c1"># much of what follows will be different as a result</span>
+            <span class="k">if</span> <span class="s2">&quot;data:datatype=0&quot;</span> <span class="ow">in</span> <span class="nb">list</span><span class="p">(</span><span class="n">level_group</span><span class="o">.</span><span class="n">keys</span><span class="p">()):</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">is_plot_file</span> <span class="o">=</span> <span class="kc">True</span>
+
+            <span class="n">group_atts</span> <span class="o">=</span> <span class="n">level_group</span><span class="o">.</span><span class="n">attrs</span>
+            <span class="n">boxes</span> <span class="o">=</span> <span class="n">level_group</span><span class="p">[</span><span class="s2">&quot;boxes&quot;</span><span class="p">]</span>
+            <span class="n">lev_dx</span> <span class="o">=</span> <span class="n">group_atts</span><span class="p">[</span><span class="s2">&quot;dx&quot;</span><span class="p">]</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">levels</span><span class="p">[</span><span class="n">level</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">DX</span><span class="p">:</span> <span class="n">lev_dx</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">DT</span><span class="p">:</span> <span class="n">group_atts</span><span class="p">[</span><span class="s2">&quot;dt&quot;</span><span class="p">],</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">REF_RATIO</span><span class="p">:</span> <span class="n">group_atts</span><span class="p">[</span><span class="s2">&quot;ref_ratio&quot;</span><span class="p">],</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">BOXES</span><span class="p">:</span> <span class="nb">list</span><span class="p">(</span><span class="n">boxes</span><span class="p">),</span>
+            <span class="p">}</span>
+
+            <span class="c1"># Some attributes on level 0 apply to whole hierarchy</span>
+            <span class="k">if</span> <span class="n">level</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">time</span> <span class="o">=</span> <span class="n">group_atts</span><span class="p">[</span><span class="s2">&quot;time&quot;</span><span class="p">]</span>
+
+                <span class="bp">self</span><span class="o">.</span><span class="n">prob_domain</span> <span class="o">=</span> <span class="n">group_atts</span><span class="p">[</span><span class="s2">&quot;prob_domain&quot;</span><span class="p">]</span>
+
+                <span class="bp">self</span><span class="o">.</span><span class="n">domain_size</span> <span class="o">=</span> <span class="p">[</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">prob_domain</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">levels</span><span class="p">[</span><span class="n">level</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">DX</span><span class="p">]</span>
+                    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">prob_domain</span><span class="p">))</span>
+                <span class="p">]</span>
+
+                <span class="c1"># Moving to ND</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">full_domain_size</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">domain_size</span>
+                <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">space_dim</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">space_dim</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">space_dim</span><span class="p">):</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">full_domain_size</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">full_domain_size</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">+</span> <span class="n">lev_dx</span>
+                    <span class="c1"># self.fullDomainSize[3] = self.fullDomainSize[3] + lev_dx</span>
+
+            <span class="c1"># Create a box which spans the whole domain</span>
+            <span class="c1"># Initialise with a box spanning the whole domain, then add data where it exists</span>
+            <span class="c1"># Important to do it like this for refined levels, where the whole domain isn&#39;t covered with data</span>
+            <span class="n">size</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">space_dim</span><span class="p">):</span>
+                <span class="n">lev_dom_box_dir</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">full_domain_size</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">+</span> <span class="n">lev_dx</span> <span class="o">/</span> <span class="mi">2</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">full_domain_size</span><span class="p">[</span><span class="n">i</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">space_dim</span><span class="p">]</span> <span class="o">-</span> <span class="n">lev_dx</span> <span class="o">/</span> <span class="mi">2</span><span class="p">,</span>
+                    <span class="n">lev_dx</span><span class="p">,</span>
+                <span class="p">)</span>
+                <span class="n">size</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">lev_dom_box_dir</span><span class="o">.</span><span class="n">size</span><span class="p">)</span>
+
+            <span class="n">blank_data</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">empty</span><span class="p">(</span><span class="nb">tuple</span><span class="p">(</span><span class="n">size</span><span class="p">))</span>
+            <span class="n">blank_data</span><span class="p">[:]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span>
+
+            <span class="c1"># Create an empty dataset which spans entire domain, which we will use as a template for loading data into</span>
+            <span class="n">coords</span> <span class="o">=</span> <span class="p">{}</span>
+            <span class="n">box_size</span> <span class="o">=</span> <span class="p">()</span>
+            <span class="k">for</span> <span class="n">d</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">space_dim</span><span class="p">):</span>
+                <span class="n">coords_dir</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">prob_domain</span><span class="p">[</span><span class="n">d</span><span class="p">],</span> <span class="bp">self</span><span class="o">.</span><span class="n">prob_domain</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">space_dim</span> <span class="o">+</span> <span class="n">d</span><span class="p">]</span> <span class="o">+</span> <span class="mi">1</span>
+                <span class="p">)</span>
+                <span class="n">coords</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">INDEX_COORDS_NAMES</span><span class="p">[</span><span class="n">d</span><span class="p">]]</span> <span class="o">=</span> <span class="n">coords_dir</span>
+                <span class="n">box_size</span> <span class="o">=</span> <span class="n">box_size</span> <span class="o">+</span> <span class="p">(</span><span class="n">coords_dir</span><span class="o">.</span><span class="n">size</span><span class="p">,)</span>  <span class="c1"># append to tuple of sizes</span>
+
+            <span class="n">blank_data</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">empty</span><span class="p">(</span><span class="n">box_size</span><span class="p">)</span>
+            <span class="n">ds_dom_box</span> <span class="o">=</span> <span class="n">xr</span><span class="o">.</span><span class="n">Dataset</span><span class="p">({},</span> <span class="n">coords</span><span class="o">=</span><span class="n">coords</span><span class="p">)</span>
+
+            <span class="c1"># Use indexes rather than x, y for now - then convert to x,y later</span>
+            <span class="c1"># this is to avoid issues with floating point arithmetic when merging datasets</span>
+            <span class="c1"># (we can end up trying to merge datasets where x coordinates differ by ~ 10^{-10}, creating nonsense)</span>
+
+            <span class="c1"># Create empty datasets spanning entire domain for each component</span>
+            <span class="k">for</span> <span class="n">comp_name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">comp_names</span><span class="p">:</span>
+                <span class="n">extended_coords</span> <span class="o">=</span> <span class="n">coords</span>
+                <span class="n">extended_coords</span><span class="p">[</span><span class="s2">&quot;level&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">level</span><span class="p">)</span>
+                <span class="n">dims</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">INDEX_COORDS_NAMES</span><span class="p">[:</span> <span class="bp">self</span><span class="o">.</span><span class="n">space_dim</span><span class="p">]</span>
+                <span class="c1"># dims = dims[::-1]  # reverse list so we have k, j, i etc</span>
+                <span class="n">ds_dom_box</span><span class="p">[</span><span class="n">comp_name</span><span class="p">]</span> <span class="o">=</span> <span class="n">xr</span><span class="o">.</span><span class="n">DataArray</span><span class="p">(</span>
+                    <span class="n">blank_data</span><span class="p">,</span> <span class="n">dims</span><span class="o">=</span><span class="n">dims</span><span class="p">,</span> <span class="n">coords</span><span class="o">=</span><span class="n">extended_coords</span>  <span class="c1"># dims=[&#39;j&#39;, &#39;i&#39;],</span>
+                <span class="p">)</span>
+
+            <span class="n">ds_boxes</span> <span class="o">=</span> <span class="p">[</span><span class="n">ds_dom_box</span><span class="p">]</span>
+
+            <span class="c1"># Get level outlines</span>
+            <span class="n">polygons</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="k">for</span> <span class="n">box</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">levels</span><span class="p">[</span><span class="n">level</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">BOXES</span><span class="p">]:</span>
+                <span class="n">lo_indices</span><span class="p">,</span> <span class="n">hi_indices</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_indices</span><span class="p">(</span><span class="n">box</span><span class="p">)</span>
+
+                <span class="c1"># 0.5 because cell centred</span>
+                <span class="n">lo_vals</span> <span class="o">=</span> <span class="p">[</span><span class="n">lev_dx</span> <span class="o">*</span> <span class="p">(</span><span class="mf">0.5</span> <span class="o">+</span> <span class="n">i</span><span class="p">)</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">lo_indices</span><span class="p">]</span>
+                <span class="n">hi_vals</span> <span class="o">=</span> <span class="p">[</span><span class="n">lev_dx</span> <span class="o">*</span> <span class="p">(</span><span class="mf">0.5</span> <span class="o">+</span> <span class="n">i</span><span class="p">)</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">hi_indices</span><span class="p">]</span>
+
+                <span class="n">end_points</span> <span class="o">=</span> <span class="p">[</span>
+                    <span class="p">[</span><span class="n">lo_vals</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">-</span> <span class="n">lev_dx</span> <span class="o">/</span> <span class="mi">2</span><span class="p">,</span> <span class="n">hi_vals</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">+</span> <span class="n">lev_dx</span> <span class="o">/</span> <span class="mi">2</span><span class="p">]</span>
+                    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">space_dim</span><span class="p">)</span>
+                <span class="p">]</span>
+
+                <span class="c1"># For plotting level outlines</span>
+
+                <span class="c1"># Construct vertices in n dimensions</span>
+                <span class="n">polygon_vertices_auto</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">product</span><span class="p">(</span><span class="o">*</span><span class="n">end_points</span><span class="p">))</span>
+                <span class="n">polygon_vertices_auto</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span>
+                    <span class="n">polygon_vertices_auto</span><span class="p">,</span>
+                    <span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">arctan</span><span class="p">(</span><span class="n">x</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">/</span> <span class="nb">max</span><span class="p">(</span><span class="nb">abs</span><span class="p">(</span><span class="n">x</span><span class="p">[</span><span class="mi">0</span><span class="p">]),</span> <span class="mf">0.0001</span><span class="p">)),</span>
+                <span class="p">)</span>
+
+                <span class="n">poly</span> <span class="o">=</span> <span class="n">Polygon</span><span class="p">(</span><span class="n">polygon_vertices_auto</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">poly</span><span class="o">.</span><span class="n">is_valid</span><span class="p">:</span>
+                    <span class="n">polygons</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">poly</span><span class="p">)</span>
+
+            <span class="n">level_outline</span> <span class="o">=</span> <span class="n">gpd</span><span class="o">.</span><span class="n">GeoSeries</span><span class="p">(</span><span class="n">cascaded_union</span><span class="p">(</span><span class="n">polygons</span><span class="p">))</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">level_outlines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">level_outline</span><span class="p">)</span>
+
+            <span class="c1"># Data is sorted by box and by component, so need to know total number of components</span>
+            <span class="n">num_comps</span> <span class="o">=</span> <span class="mi">0</span>
+            <span class="k">for</span> <span class="n">comp_name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                <span class="n">num_comps</span> <span class="o">=</span> <span class="n">num_comps</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">data</span><span class="p">[</span><span class="n">comp_name</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">NUM_COMPS</span><span class="p">]</span>
+
+            <span class="c1"># Now get the  data for each field, on each level</span>
+
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">is_plot_file</span><span class="p">:</span>
+
+                <span class="c1"># For plt files, data is sorted by box then by component</span>
+
+                <span class="n">data</span> <span class="o">=</span> <span class="n">level_group</span><span class="p">[</span><span class="s2">&quot;data:datatype=0&quot;</span><span class="p">]</span>
+
+                <span class="c1"># Some other stuff we can get, but don&#39;t at the moment:</span>
+                <span class="c1"># data_offsets = level_group[&#39;data:offsets=0&#39;]</span>
+                <span class="c1"># data_atts = level_group[&#39;data_attributes&#39;]</span>
+                <span class="c1"># advVel = level_group[&#39;advVel:datatype=0&#39;]</span>
+                <span class="c1"># advVel_offsets = level_group[&#39;advVel:offsets=0&#39;]</span>
+                <span class="c1"># advVel_atts = level_group[&#39;advVel_attributes&#39;]</span>
+
+                <span class="n">data_unshaped</span> <span class="o">=</span> <span class="n">data</span><span class="p">[()]</span>
+
+                <span class="n">offset</span> <span class="o">=</span> <span class="mi">0</span>
+
+                <span class="k">for</span> <span class="n">box</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">levels</span><span class="p">[</span><span class="n">level</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">BOXES</span><span class="p">]:</span>
+                    <span class="n">lo_indices</span> <span class="o">=</span> <span class="p">[</span><span class="n">box</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">space_dim</span><span class="p">)]</span>
+                    <span class="n">hi_indices</span> <span class="o">=</span> <span class="p">[</span>
+                        <span class="n">box</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">space_dim</span><span class="p">,</span> <span class="mi">2</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">space_dim</span><span class="p">)</span>
+                    <span class="p">]</span>
+
+                    <span class="n">n_cells_dir</span> <span class="o">=</span> <span class="p">[</span>
+                        <span class="n">hi_indices</span><span class="p">[</span><span class="n">d</span><span class="p">]</span> <span class="o">+</span> <span class="mi">1</span> <span class="o">-</span> <span class="n">lo_indices</span><span class="p">[</span><span class="n">d</span><span class="p">]</span> <span class="k">for</span> <span class="n">d</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">space_dim</span><span class="p">)</span>
+                    <span class="p">]</span>
+
+                    <span class="n">num_box_cells</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">prod</span><span class="p">(</span>
+                        <span class="n">n_cells_dir</span>
+                    <span class="p">)</span>  <span class="c1"># effectively nx * ny * nz * ...</span>
+                    <span class="n">num_cells</span> <span class="o">=</span> <span class="p">(</span>
+                        <span class="n">num_box_cells</span> <span class="o">*</span> <span class="n">num_comps</span>
+                    <span class="p">)</span>  <span class="c1"># also multiply by number of components</span>
+
+                    <span class="c1"># Now split into individual components</span>
+                    <span class="c1"># data contains all fields on this level, sort into individual fields</span>
+                    <span class="n">comp_offset_start</span> <span class="o">=</span> <span class="mi">0</span>
+
+                    <span class="n">coords</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_coordinates</span><span class="p">(</span><span class="n">lo_indices</span><span class="p">,</span> <span class="n">hi_indices</span><span class="p">)</span>
+
+                    <span class="c1"># Blank dataset for this box, which each component will be added to</span>
+                    <span class="n">ds_box</span> <span class="o">=</span> <span class="n">xr</span><span class="o">.</span><span class="n">Dataset</span><span class="p">({},</span> <span class="n">coords</span><span class="o">=</span><span class="n">coords</span><span class="p">)</span>
+
+                    <span class="k">for</span> <span class="n">comp_name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">comp_names</span><span class="p">:</span>
+                        <span class="c1"># logging.info(&#39;Num cells in a box: &#39; + str(num_box_cells))</span>
+                        <span class="n">comp_offset_finish</span> <span class="o">=</span> <span class="n">comp_offset_start</span> <span class="o">+</span> <span class="n">num_box_cells</span>
+
+                        <span class="n">indices</span> <span class="o">=</span> <span class="p">[</span>
+                            <span class="n">offset</span> <span class="o">+</span> <span class="n">comp_offset_start</span><span class="p">,</span>
+                            <span class="n">offset</span> <span class="o">+</span> <span class="n">comp_offset_finish</span><span class="p">,</span>
+                        <span class="p">]</span>
+
+                        <span class="n">comp_offset_start</span> <span class="o">=</span> <span class="n">comp_offset_finish</span>
+
+                        <span class="n">ds_box</span><span class="p">[</span><span class="n">comp_name</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_box_comp_data</span><span class="p">(</span>
+                            <span class="n">data_unshaped</span><span class="p">,</span>
+                            <span class="n">level</span><span class="p">,</span>
+                            <span class="n">indices</span><span class="p">,</span>
+                            <span class="n">comp_name</span><span class="p">,</span>
+                            <span class="n">n_cells_dir</span><span class="p">,</span>
+                            <span class="n">coords</span><span class="p">,</span>
+                        <span class="p">)</span>
+
+                    <span class="c1"># Move onto next box</span>
+                    <span class="n">offset</span> <span class="o">=</span> <span class="n">offset</span> <span class="o">+</span> <span class="n">num_cells</span>
+
+                    <span class="n">ds_boxes</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">ds_box</span><span class="p">)</span>
+
+            <span class="k">else</span><span class="p">:</span>
+
+                <span class="c1"># For chk files, data is sorted by component then by box</span>
+                <span class="c1"># Loop over components and get data for that component from each box</span>
+
+                <span class="n">box_offset_scalar</span> <span class="o">=</span> <span class="mi">0</span>
+
+                <span class="c1"># num_boxes = len(self.levels[level][self.BOXES])</span>
+                <span class="k">for</span> <span class="n">box</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">levels</span><span class="p">[</span><span class="n">level</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">BOXES</span><span class="p">]:</span>
+                    <span class="n">lo_indices</span><span class="p">,</span> <span class="n">hi_indices</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_indices</span><span class="p">(</span><span class="n">box</span><span class="p">)</span>
+
+                    <span class="n">n_cells_dir</span> <span class="o">=</span> <span class="p">[</span>
+                        <span class="n">hi_indices</span><span class="p">[</span><span class="n">d</span><span class="p">]</span> <span class="o">+</span> <span class="mi">1</span> <span class="o">-</span> <span class="n">lo_indices</span><span class="p">[</span><span class="n">d</span><span class="p">]</span> <span class="k">for</span> <span class="n">d</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">space_dim</span><span class="p">)</span>
+                    <span class="p">]</span>
+
+                    <span class="n">num_box_cells</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">prod</span><span class="p">(</span>
+                        <span class="n">n_cells_dir</span>
+                    <span class="p">)</span>  <span class="c1"># effectively nx * ny * nz * ...</span>
+                    <span class="c1"># num_cells = num_box_cells * num_comps  # also multiply by number of components</span>
+
+                    <span class="c1"># num_domain_cells = num_box_cells * num_boxes</span>
+
+                    <span class="c1"># Now split into individual components</span>
+                    <span class="c1"># data contains all fields on this level, sort into individual fields</span>
+                    <span class="c1"># comp_offset_start = 0</span>
+
+                    <span class="n">coords</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_coordinates</span><span class="p">(</span><span class="n">lo_indices</span><span class="p">,</span> <span class="n">hi_indices</span><span class="p">)</span>
+
+                    <span class="c1"># Blank dataset for this box, which each component will be added to</span>
+                    <span class="n">ds_box</span> <span class="o">=</span> <span class="n">xr</span><span class="o">.</span><span class="n">Dataset</span><span class="p">({},</span> <span class="n">coords</span><span class="o">=</span><span class="n">coords</span><span class="p">)</span>
+
+                    <span class="k">for</span> <span class="n">comp_name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">comp_names</span><span class="p">:</span>
+                        <span class="n">component</span> <span class="o">=</span> <span class="mi">0</span>
+
+                        <span class="c1"># Need to get data differently if this is a vector</span>
+                        <span class="n">is_vector</span> <span class="o">=</span> <span class="p">(</span>
+                            <span class="n">comp_name</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;x&quot;</span>
+                            <span class="ow">or</span> <span class="n">comp_name</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;y&quot;</span>
+                            <span class="ow">or</span> <span class="n">comp_name</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;z&quot;</span>
+                            <span class="ow">and</span> <span class="nb">sum</span><span class="p">([</span><span class="n">comp_name</span><span class="p">[</span><span class="mi">1</span><span class="p">:]</span> <span class="ow">in</span> <span class="n">x</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">comp_names</span><span class="p">])</span>
+                            <span class="o">==</span> <span class="bp">self</span><span class="o">.</span><span class="n">space_dim</span>
+                        <span class="p">)</span>
+                        <span class="k">if</span> <span class="n">is_vector</span><span class="p">:</span>
+                            <span class="k">if</span> <span class="n">comp_name</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;x&quot;</span><span class="p">:</span>
+                                <span class="n">component</span> <span class="o">=</span> <span class="mi">0</span>
+
+                            <span class="k">elif</span> <span class="n">comp_name</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;y&quot;</span><span class="p">:</span>
+                                <span class="n">component</span> <span class="o">=</span> <span class="mi">1</span>
+                            <span class="k">elif</span> <span class="n">comp_name</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;z&quot;</span><span class="p">:</span>
+                                <span class="n">component</span> <span class="o">=</span> <span class="mi">2</span>
+
+                            <span class="c1"># Hardwired to 2D for now</span>
+                            <span class="n">num_comps</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">space_dim</span>
+
+                            <span class="c1"># This is the data for this component in all boxes</span>
+                            <span class="n">data</span> <span class="o">=</span> <span class="n">level_group</span><span class="p">[</span><span class="n">comp_name</span><span class="p">[</span><span class="mi">1</span><span class="p">:]</span> <span class="o">+</span> <span class="s2">&quot;:datatype=0&quot;</span><span class="p">]</span>
+                        <span class="k">else</span><span class="p">:</span>
+                            <span class="n">data</span> <span class="o">=</span> <span class="n">level_group</span><span class="p">[</span><span class="n">comp_name</span> <span class="o">+</span> <span class="s2">&quot;:datatype=0&quot;</span><span class="p">]</span>
+                            <span class="n">component</span> <span class="o">=</span> <span class="mi">0</span>
+
+                            <span class="n">num_comps</span> <span class="o">=</span> <span class="mi">1</span>
+
+                        <span class="n">data_unshaped</span> <span class="o">=</span> <span class="n">data</span><span class="p">[()]</span>
+
+                        <span class="c1"># logging.info(&#39;Num cells in a box: &#39; + str(num_box_cells))</span>
+                        <span class="c1"># comp_offset_finish = comp_offset_start + num_box_cells</span>
+
+                        <span class="n">component_offset</span> <span class="o">=</span> <span class="mi">0</span>  <span class="c1"># this is just 0 because we only get data for this component</span>
+
+                        <span class="c1"># For vectors, we may have an offset?</span>
+                        <span class="k">if</span> <span class="n">num_comps</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
+                            <span class="n">component_offset</span> <span class="o">=</span> <span class="n">component</span> <span class="o">*</span> <span class="n">num_box_cells</span>
+
+                        <span class="c1"># start_index = component_offset + box_offset</span>
+                        <span class="n">start_index</span> <span class="o">=</span> <span class="n">box_offset_scalar</span> <span class="o">*</span> <span class="n">num_comps</span> <span class="o">+</span> <span class="n">component_offset</span>
+                        <span class="n">end_index</span> <span class="o">=</span> <span class="n">start_index</span> <span class="o">+</span> <span class="n">num_box_cells</span>
+
+                        <span class="n">indices</span> <span class="o">=</span> <span class="p">[</span><span class="n">start_index</span><span class="p">,</span> <span class="n">end_index</span><span class="p">]</span>
+
+                        <span class="c1"># comp_offset_start = comp_offset_finish</span>
+
+                        <span class="n">ds_box</span><span class="p">[</span><span class="n">comp_name</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_box_comp_data</span><span class="p">(</span>
+                            <span class="n">data_unshaped</span><span class="p">,</span>
+                            <span class="n">level</span><span class="p">,</span>
+                            <span class="n">indices</span><span class="p">,</span>
+                            <span class="n">comp_name</span><span class="p">,</span>
+                            <span class="n">n_cells_dir</span><span class="p">,</span>
+                            <span class="n">coords</span><span class="p">,</span>
+                        <span class="p">)</span>
+
+                        <span class="c1"># component_offset = component_offset + (num_box_cells*num_comps)</span>
+
+                    <span class="c1"># Move onto next box</span>
+                    <span class="n">box_offset_scalar</span> <span class="o">=</span> <span class="n">box_offset_scalar</span> <span class="o">+</span> <span class="n">num_box_cells</span>
+
+                    <span class="n">ds_boxes</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">ds_box</span><span class="p">)</span>
+
+            <span class="c1"># ds_level = xr.merge(ds_boxes)</span>
+
+            <span class="c1"># ds_level = xr.auto_combine(ds_boxes[1:])</span>
+
+            <span class="c1"># Update will replace in place</span>
+            <span class="n">first_box</span> <span class="o">=</span> <span class="mi">1</span>
+            <span class="n">ds_level</span> <span class="o">=</span> <span class="n">ds_boxes</span><span class="p">[</span><span class="n">first_box</span><span class="p">]</span>
+            <span class="k">for</span> <span class="n">b</span> <span class="ow">in</span> <span class="n">ds_boxes</span><span class="p">[</span><span class="n">first_box</span> <span class="o">+</span> <span class="mi">1</span> <span class="p">:]:</span>
+                <span class="c1"># b = b.transpose()</span>
+
+                <span class="n">ds_level</span> <span class="o">=</span> <span class="n">ds_level</span><span class="o">.</span><span class="n">combine_first</span><span class="p">(</span><span class="n">b</span><span class="p">)</span>
+                <span class="c1"># ds_level = ds_level.update(b)</span>
+
+            <span class="c1"># Debugging:</span>
+            <span class="c1"># fig = pyplot.figure()</span>
+            <span class="c1"># f, ax = pyplot.subplots(3, 3)</span>
+            <span class="c1"># ax_list = ax.flatten()</span>
+            <span class="c1">#</span>
+            <span class="c1"># for i in range(0, len(ax_list)):</span>
+            <span class="c1">#     if i &gt; len(ds_boxes)-2:</span>
+            <span class="c1">#         continue</span>
+            <span class="c1">#</span>
+            <span class="c1">#     b = ds_boxes[i+1]</span>
+            <span class="c1">#     ax_list[i].pcolormesh(b.coords[&#39;i&#39;], b.coords[&#39;j&#39;], b[&#39;Porosity&#39;].transpose())</span>
+            <span class="c1">#</span>
+            <span class="c1"># pyplot.show()</span>
+
+            <span class="c1"># Old version:</span>
+            <span class="c1"># if hasattr(xr, &#39;combine_by_coords&#39;):</span>
+            <span class="c1">#     ds_level = xr.combine_by_coords(ds_boxes[1:])</span>
+            <span class="c1"># else:</span>
+            <span class="c1">#     ds_level = xr.auto_combine(ds_boxes[1:])</span>
+
+            <span class="c1"># Create x,y,z, coordinates</span>
+            <span class="n">x_y_coords_names</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;x&quot;</span><span class="p">,</span> <span class="s2">&quot;y&quot;</span><span class="p">,</span> <span class="s2">&quot;z&quot;</span><span class="p">]</span>
+
+            <span class="k">for</span> <span class="n">d</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">space_dim</span><span class="p">):</span>
+                <span class="c1"># Factor of 0.5 accounts for cell centering</span>
+                <span class="n">ds_level</span><span class="o">.</span><span class="n">coords</span><span class="p">[</span><span class="n">x_y_coords_names</span><span class="p">[</span><span class="n">d</span><span class="p">]]</span> <span class="o">=</span> <span class="p">(</span>
+                    <span class="n">ds_level</span><span class="o">.</span><span class="n">coords</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">INDEX_COORDS_NAMES</span><span class="p">[</span><span class="n">d</span><span class="p">]]</span> <span class="o">+</span> <span class="mf">0.5</span>
+                <span class="p">)</span> <span class="o">*</span> <span class="n">lev_dx</span>
+            <span class="c1"># ds_level.coords[&#39;x&#39;] = ds_level.coords[&#39;i&#39;] * lev_dx</span>
+            <span class="c1"># ds_level.coords[&#39;y&#39;] = ds_level.coords[&#39;j&#39;] * lev_dx</span>
+
+            <span class="k">if</span> <span class="n">zero_x</span><span class="p">:</span>
+                <span class="n">ds_level</span><span class="o">.</span><span class="n">coords</span><span class="p">[</span><span class="s2">&quot;x&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">ds_level</span><span class="o">.</span><span class="n">coords</span><span class="p">[</span><span class="s2">&quot;x&quot;</span><span class="p">]</span> <span class="o">-</span> <span class="nb">min</span><span class="p">(</span><span class="n">ds_level</span><span class="o">.</span><span class="n">coords</span><span class="p">[</span><span class="s2">&quot;x&quot;</span><span class="p">])</span>
+
+            <span class="c1"># Swap i,j,k to x,y,z coordinates</span>
+            <span class="k">for</span> <span class="n">d</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">space_dim</span><span class="p">):</span>
+                <span class="n">ds_level</span> <span class="o">=</span> <span class="n">ds_level</span><span class="o">.</span><span class="n">swap_dims</span><span class="p">(</span>
+                    <span class="p">{</span><span class="bp">self</span><span class="o">.</span><span class="n">INDEX_COORDS_NAMES</span><span class="p">[</span><span class="n">d</span><span class="p">]:</span> <span class="n">x_y_coords_names</span><span class="p">[</span><span class="n">d</span><span class="p">]}</span>
+                <span class="p">)</span>
+
+            <span class="c1"># ds_level = ds_level.swap_dims({&#39;i&#39;: &#39;x&#39;})</span>
+            <span class="c1"># ds_level = ds_level.swap_dims({&#39;j&#39;: &#39;y&#39;})</span>
+
+            <span class="c1"># TODO: should level be an attribute or co-ordinate? need to try with actual AMR data</span>
+            <span class="n">ds_level</span><span class="o">.</span><span class="n">attrs</span><span class="p">[</span><span class="s2">&quot;level&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">level</span>
+
+            <span class="n">ds_levels</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">ds_level</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">ds_levels</span> <span class="o">=</span> <span class="n">ds_levels</span>
+
+        <span class="n">h5_file</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="nf">get_coordinates</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">lo</span><span class="p">,</span> <span class="n">hi</span><span class="p">):</span>
+        <span class="n">coordinates</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">for</span> <span class="n">d</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">space_dim</span><span class="p">):</span>
+            <span class="n">coords_dir</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">lo</span><span class="p">[</span><span class="n">d</span><span class="p">],</span> <span class="n">hi</span><span class="p">[</span><span class="n">d</span><span class="p">]</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span>
+            <span class="n">coordinates</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">INDEX_COORDS_NAMES</span><span class="p">[</span><span class="n">d</span><span class="p">]]</span> <span class="o">=</span> <span class="n">coords_dir</span>
+
+        <span class="k">return</span> <span class="n">coordinates</span>
+
+    <span class="k">def</span> <span class="nf">get_box_comp_data</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span> <span class="n">data_unshaped</span><span class="p">,</span> <span class="n">level</span><span class="p">,</span> <span class="n">indices</span><span class="p">,</span> <span class="n">comp_name</span><span class="p">,</span> <span class="n">n_cells_dir</span><span class="p">,</span> <span class="n">coords</span>
+    <span class="p">):</span>
+
+        <span class="n">data_box_comp</span> <span class="o">=</span> <span class="n">data_unshaped</span><span class="p">[</span><span class="n">indices</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="p">:</span> <span class="n">indices</span><span class="p">[</span><span class="mi">1</span><span class="p">]]</span>
+
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">data_box_comp</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;ERROR - no data in box&quot;</span><span class="p">)</span>
+
+        <span class="c1"># Chombo data is indexed in reverse (i.e. data[k, j, i]), so whilst we have n_cells_dir = [Nx, Ny, Nz],</span>
+        <span class="c1"># we need to reshape according to [Nz, Ny, Nx] before then transposing to get</span>
+        <span class="c1"># an array which is indexed as data[i, j, k]</span>
+        <span class="c1"># reshaped_data = data_box_comp.reshape(tuple(n_cells_dir))</span>
+        <span class="n">reshaped_data</span> <span class="o">=</span> <span class="n">data_box_comp</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="nb">tuple</span><span class="p">(</span><span class="n">n_cells_dir</span><span class="p">[::</span><span class="o">-</span><span class="mi">1</span><span class="p">]))</span>
+        <span class="n">reshaped_data</span> <span class="o">=</span> <span class="n">reshaped_data</span><span class="o">.</span><span class="n">transpose</span><span class="p">()</span>
+
+        <span class="c1"># I think we only need to transpose in 3D</span>
+        <span class="c1"># if self.space_dim == 3: #  or self.space_dim == 2</span>
+        <span class="c1">#     reshaped_data = reshaped_data.transpose()</span>
+        <span class="n">reshaped_data</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">reshaped_data</span><span class="p">)</span>
+
+        <span class="c1"># Check if scalar or vector</span>
+        <span class="n">trimmed_comp_names</span> <span class="o">=</span> <span class="p">[</span><span class="n">n</span><span class="p">[</span><span class="mi">1</span><span class="p">:]</span> <span class="k">for</span> <span class="n">n</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">comp_names</span><span class="p">]</span>
+        <span class="n">field_type</span> <span class="o">=</span> <span class="s2">&quot;scalar&quot;</span>
+        <span class="k">if</span> <span class="n">comp_name</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">&quot;x&quot;</span><span class="p">,</span> <span class="s2">&quot;y&quot;</span><span class="p">,</span> <span class="s2">&quot;z&quot;</span><span class="p">)</span> <span class="ow">and</span> <span class="n">comp_name</span><span class="p">[</span><span class="mi">1</span><span class="p">:]</span> <span class="ow">in</span> <span class="n">trimmed_comp_names</span><span class="p">:</span>
+            <span class="n">field_type</span> <span class="o">=</span> <span class="s2">&quot;vector&quot;</span>
+
+        <span class="n">dim_list</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">INDEX_COORDS_NAMES</span><span class="p">[:</span> <span class="bp">self</span><span class="o">.</span><span class="n">space_dim</span><span class="p">]</span>
+        <span class="c1"># dim_list = dim_list[::-1]</span>
+        <span class="n">extended_coords</span> <span class="o">=</span> <span class="n">coords</span>
+        <span class="n">extended_coords</span><span class="p">[</span><span class="s2">&quot;level&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">level</span>
+
+        <span class="c1"># It&#39;s really unclear when we do and don&#39;t need to transpose</span>
+        <span class="c1"># reshaped_data = reshaped_data.transpose()</span>
+        <span class="c1"># dim_list = dim_list[::-1]</span>
+
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">reshaped_data</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="nb">len</span><span class="p">(</span><span class="n">extended_coords</span><span class="p">[</span><span class="n">dim_list</span><span class="p">[</span><span class="mi">0</span><span class="p">]]):</span>
+            <span class="n">reshaped_data</span> <span class="o">=</span> <span class="n">reshaped_data</span><span class="o">.</span><span class="n">transpose</span><span class="p">()</span>
+            <span class="c1"># dim_list = dim_list[::-1]</span>
+
+        <span class="n">xarr_component_box</span> <span class="o">=</span> <span class="n">xr</span><span class="o">.</span><span class="n">DataArray</span><span class="p">(</span>
+            <span class="n">reshaped_data</span><span class="p">,</span>
+            <span class="n">dims</span><span class="o">=</span><span class="n">dim_list</span><span class="p">,</span>  <span class="c1"># [&#39;j&#39;, &#39;i&#39;],</span>
+            <span class="n">coords</span><span class="o">=</span><span class="n">extended_coords</span><span class="p">,</span>  <span class="c1"># {&#39;i&#39;: i_box, &#39;j&#39;: j_box, &#39;level&#39;: level},</span>
+            <span class="n">attrs</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;field_type&quot;</span><span class="p">:</span> <span class="n">field_type</span><span class="p">},</span>
+        <span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">xarr_component_box</span>
+
+    <span class="k">def</span> <span class="nf">get_indices</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">box</span><span class="p">):</span>
+        <span class="n">lo</span> <span class="o">=</span> <span class="p">[</span><span class="n">box</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">space_dim</span><span class="p">)]</span>
+        <span class="n">hi</span> <span class="o">=</span> <span class="p">[</span><span class="n">box</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">space_dim</span><span class="p">,</span> <span class="mi">2</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">space_dim</span><span class="p">)]</span>
+        <span class="k">return</span> <span class="n">lo</span><span class="p">,</span> <span class="n">hi</span>
+
+<div class="viewcode-block" id="PltFile.plot_outlines"><a class="viewcode-back" href="../../api.html#chombopy.plotfile.PltFile.plot_outlines">[docs]</a>    <span class="k">def</span> <span class="nf">plot_outlines</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ax</span><span class="p">,</span> <span class="n">colors</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot; Plot all level outlines (except level 0)&quot;&quot;&quot;</span>
+
+        <span class="k">for</span> <span class="n">level</span> <span class="ow">in</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">level_outlines</span><span class="p">)):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">plot_outline</span><span class="p">(</span><span class="n">ax</span><span class="p">,</span> <span class="n">level</span><span class="p">,</span> <span class="n">colors</span><span class="p">)</span></div>
+
+<div class="viewcode-block" id="PltFile.plot_outline"><a class="viewcode-back" href="../../api.html#chombopy.plotfile.PltFile.plot_outline">[docs]</a>    <span class="k">def</span> <span class="nf">plot_outline</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ax</span><span class="p">,</span> <span class="n">level</span><span class="p">,</span> <span class="n">colors</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot; Plot level outline for a particular color&quot;&quot;&quot;</span>
+
+        <span class="c1"># Default colors</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">colors</span><span class="p">:</span>
+            <span class="n">colors</span> <span class="o">=</span> <span class="p">[[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">],</span> <span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">],</span> <span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">],</span> <span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">]]</span>
+
+        <span class="n">ec</span> <span class="o">=</span> <span class="n">colors</span><span class="p">[</span><span class="n">level</span><span class="p">][:]</span>
+
+        <span class="n">outline</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">level_outlines</span><span class="p">[</span><span class="n">level</span><span class="p">]</span>
+
+        <span class="c1"># Shrink outline slightly</span>
+
+        <span class="c1"># outline</span>
+        <span class="c1"># outline = outline.scale(0.99, 0.99)</span>
+        <span class="c1"># dx = self.levels[level][self.DX]</span>
+        <span class="c1"># domain = Polygon([(dx, dx), (1-dx, dx), (1-dx, 1-dx), (dx, 1-dx)])</span>
+        <span class="c1"># intersect = gpd.sjoin(domain, outline, how=&quot;inner&quot;, op=&#39;intersection&#39;)</span>
+        <span class="c1"># intersect.plot(ax=ax, edgecolor=ec, facecolor=[1,1,1,0], linewidth=2.0)</span>
+
+        <span class="n">outline</span> <span class="o">=</span> <span class="n">outline</span><span class="o">.</span><span class="n">scale</span><span class="p">(</span><span class="mf">0.99</span><span class="p">,</span> <span class="mf">0.99</span><span class="p">)</span>
+        <span class="n">outline</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">ax</span><span class="o">=</span><span class="n">ax</span><span class="p">,</span> <span class="n">edgecolor</span><span class="o">=</span><span class="n">ec</span><span class="p">,</span> <span class="n">facecolor</span><span class="o">=</span><span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">],</span> <span class="n">linewidth</span><span class="o">=</span><span class="mf">3.0</span><span class="p">)</span></div>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span> <span class="nf">get_mesh_grid_n</span><span class="p">(</span><span class="n">arr</span><span class="p">,</span> <span class="n">grow</span><span class="o">=</span><span class="mi">0</span><span class="p">):</span>
+        <span class="n">x</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">arr</span><span class="o">.</span><span class="n">coords</span><span class="p">[</span><span class="s2">&quot;x&quot;</span><span class="p">])</span>
+        <span class="n">y</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">arr</span><span class="o">.</span><span class="n">coords</span><span class="p">[</span><span class="s2">&quot;y&quot;</span><span class="p">])</span>
+
+        <span class="n">x_min</span> <span class="o">=</span> <span class="n">x</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="n">x_max</span> <span class="o">=</span> <span class="n">x</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+        <span class="n">y_min</span> <span class="o">=</span> <span class="n">y</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="n">y_max</span> <span class="o">=</span> <span class="n">y</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+
+        <span class="n">nx</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="o">+</span> <span class="n">grow</span>
+        <span class="n">ny</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">y</span><span class="p">)</span> <span class="o">+</span> <span class="n">grow</span>
+
+        <span class="n">x</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="n">x_min</span><span class="p">,</span> <span class="n">x_max</span><span class="p">,</span> <span class="n">nx</span><span class="p">)</span>
+        <span class="n">y</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="n">y_min</span><span class="p">,</span> <span class="n">y_max</span><span class="p">,</span> <span class="n">ny</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">x</span><span class="p">,</span> <span class="n">y</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span> <span class="nf">get_mesh_grid_xarray</span><span class="p">(</span><span class="n">arr</span><span class="p">,</span> <span class="n">grow</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+        <span class="n">x</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">arr</span><span class="o">.</span><span class="n">coords</span><span class="p">[</span><span class="s2">&quot;x&quot;</span><span class="p">])</span>
+        <span class="n">y</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">arr</span><span class="o">.</span><span class="n">coords</span><span class="p">[</span><span class="s2">&quot;y&quot;</span><span class="p">])</span>
+
+        <span class="n">dx</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">x</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">-</span> <span class="n">x</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+        <span class="n">dy</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">y</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">-</span> <span class="n">y</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+
+        <span class="k">if</span> <span class="n">grow</span><span class="p">:</span>
+            <span class="n">x</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="p">[</span><span class="nb">float</span><span class="p">(</span><span class="n">x</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span> <span class="o">+</span> <span class="n">dx</span><span class="p">])</span>
+            <span class="n">y</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">y</span><span class="p">,</span> <span class="p">[</span><span class="nb">float</span><span class="p">(</span><span class="n">y</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span> <span class="o">+</span> <span class="n">dy</span><span class="p">])</span>
+
+            <span class="n">x</span> <span class="o">=</span> <span class="n">x</span> <span class="o">-</span> <span class="n">dx</span> <span class="o">/</span> <span class="mi">2</span>
+            <span class="n">y</span> <span class="o">=</span> <span class="n">y</span> <span class="o">-</span> <span class="n">dx</span> <span class="o">/</span> <span class="mi">2</span>
+
+        <span class="k">return</span> <span class="n">x</span><span class="p">,</span> <span class="n">y</span>
+
+<div class="viewcode-block" id="PltFile.get_rotate_dims"><a class="viewcode-back" href="../../api.html#chombopy.plotfile.PltFile.get_rotate_dims">[docs]</a>    <span class="k">def</span> <span class="nf">get_rotate_dims</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">rotate_dims</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot; Backward compatibility fix. Originally user had to ask to rotate dimensions to match</span>
+<span class="sd">        python indexing. We now do this by default. &quot;&quot;&quot;</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">python_index_ordering</span><span class="p">:</span>
+            <span class="n">rotate_dims</span> <span class="o">=</span> <span class="ow">not</span> <span class="n">rotate_dims</span>
+
+        <span class="k">return</span> <span class="n">rotate_dims</span></div>
+
+    <span class="k">def</span> <span class="nf">get_mesh_grid</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">level</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">rotate_dims</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">extend_grid</span><span class="o">=</span><span class="kc">True</span><span class="p">):</span>
+
+        <span class="n">rotate_dims</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_rotate_dims</span><span class="p">(</span><span class="n">rotate_dims</span><span class="p">)</span>
+
+        <span class="c1"># dx = self.levels[level][self.DX]</span>
+
+        <span class="n">components</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span>
+        <span class="c1"># components = [c.decode(&#39;UTF-8&#39;) for c in components]</span>
+
+        <span class="n">field</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_level_data</span><span class="p">(</span><span class="n">components</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+
+        <span class="n">field_array</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">field</span><span class="p">)</span>
+        <span class="n">grid_size</span> <span class="o">=</span> <span class="n">field_array</span><span class="o">.</span><span class="n">shape</span>
+
+        <span class="n">x_coords</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">field</span><span class="o">.</span><span class="n">coords</span><span class="p">[</span><span class="s2">&quot;x&quot;</span><span class="p">])</span>
+        <span class="n">y_coords</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">field</span><span class="o">.</span><span class="n">coords</span><span class="p">[</span><span class="s2">&quot;y&quot;</span><span class="p">])</span>
+
+        <span class="n">dx</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">x_coords</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">-</span> <span class="n">x_coords</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+
+        <span class="k">if</span> <span class="n">extend_grid</span><span class="p">:</span>
+            <span class="n">extend</span> <span class="o">=</span> <span class="n">dx</span> <span class="o">/</span> <span class="mi">2</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">extend</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="n">y</span><span class="p">,</span> <span class="n">x</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">mgrid</span><span class="p">[</span>
+            <span class="nb">slice</span><span class="p">(</span><span class="nb">min</span><span class="p">(</span><span class="n">x_coords</span><span class="p">)</span> <span class="o">-</span> <span class="n">extend</span><span class="p">,</span> <span class="nb">max</span><span class="p">(</span><span class="n">x_coords</span><span class="p">)</span> <span class="o">+</span> <span class="n">extend</span><span class="p">,</span> <span class="n">dx</span><span class="p">),</span>
+            <span class="nb">slice</span><span class="p">(</span><span class="nb">min</span><span class="p">(</span><span class="n">y_coords</span><span class="p">)</span> <span class="o">-</span> <span class="n">extend</span><span class="p">,</span> <span class="nb">max</span><span class="p">(</span><span class="n">y_coords</span><span class="p">)</span> <span class="o">+</span> <span class="n">extend</span><span class="p">,</span> <span class="n">dx</span><span class="p">),</span>
+        <span class="p">]</span>
+
+        <span class="n">coord_max</span> <span class="o">=</span> <span class="p">[(</span><span class="n">grid_size</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span> <span class="o">*</span> <span class="n">dx</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">space_dim</span><span class="p">)]</span>
+        <span class="n">grid_spacing</span> <span class="o">=</span> <span class="p">[</span><span class="n">coord_max</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">/</span> <span class="n">grid_size</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">space_dim</span><span class="p">)]</span>
+        <span class="n">grids</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">mgrid</span><span class="p">[</span>
+            <span class="p">[</span><span class="nb">slice</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">coord_max</span><span class="p">[</span><span class="n">i</span><span class="p">],</span> <span class="n">grid_spacing</span><span class="p">[</span><span class="n">i</span><span class="p">])</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">space_dim</span><span class="p">)]</span>
+        <span class="p">]</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">space_dim</span> <span class="o">==</span> <span class="mi">3</span><span class="p">:</span>
+            <span class="n">x</span> <span class="o">=</span> <span class="n">grids</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+            <span class="n">y</span> <span class="o">=</span> <span class="n">grids</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+            <span class="n">z</span> <span class="o">=</span> <span class="n">grids</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span>
+
+            <span class="k">if</span> <span class="n">rotate_dims</span><span class="p">:</span>
+                <span class="n">x</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">transpose</span><span class="p">()</span>
+                <span class="n">y</span> <span class="o">=</span> <span class="n">y</span><span class="o">.</span><span class="n">transpose</span><span class="p">()</span>
+                <span class="n">z</span> <span class="o">=</span> <span class="n">z</span><span class="o">.</span><span class="n">transpose</span><span class="p">()</span>
+
+            <span class="n">z</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">scale_slice_transform</span><span class="p">(</span><span class="n">z</span><span class="p">)</span>
+            <span class="n">x</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">scale_slice_transform</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">no_reflect</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+            <span class="n">y</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">scale_slice_transform</span><span class="p">(</span><span class="n">y</span><span class="p">,</span> <span class="n">no_reflect</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+            <span class="k">return</span> <span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">z</span>
+
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">rotate_dims</span><span class="p">:</span>
+                <span class="n">y_new</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">transpose</span><span class="p">()</span>
+                <span class="n">x_new</span> <span class="o">=</span> <span class="n">y</span><span class="o">.</span><span class="n">transpose</span><span class="p">()</span>
+
+                <span class="n">x</span> <span class="o">=</span> <span class="n">x_new</span>
+                <span class="n">y</span> <span class="o">=</span> <span class="n">y_new</span>
+
+            <span class="c1"># y = self.scale_slice_transform(y)</span>
+            <span class="c1"># x = self.scale_slice_transform(x, no_reflect=True)</span>
+
+            <span class="k">return</span> <span class="n">x</span><span class="p">,</span> <span class="n">y</span>
+
+    <span class="c1"># Added for compatibility with ChkFile interface</span>
+    <span class="k">def</span> <span class="nf">get_data</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">var_name</span><span class="p">,</span> <span class="n">rotate_dims</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+
+        <span class="n">rotate_dims</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_rotate_dims</span><span class="p">(</span><span class="n">rotate_dims</span><span class="p">)</span>
+
+        <span class="n">data</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_level_data</span><span class="p">(</span><span class="n">var_name</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">data</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">None</span>
+
+        <span class="n">data</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">rotate_dims</span><span class="p">:</span>
+            <span class="n">data</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">transpose</span><span class="p">()</span>
+
+        <span class="k">return</span> <span class="n">data</span>
+
+    <span class="k">def</span> <span class="nf">get_level_data</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">field</span><span class="p">,</span> <span class="n">level</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">valid_only</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">comp_names</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
+                <span class="s2">&quot;No data loaded, perhaps you meant to call PltFile.load_data() first? &quot;</span>
+            <span class="p">)</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">data_load_method</span> <span class="o">==</span> <span class="bp">self</span><span class="o">.</span><span class="n">YT</span><span class="p">:</span>
+            <span class="k">pass</span>
+            <span class="c1"># TODO: write this</span>
+
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">data_loaded</span><span class="p">:</span>
+            <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Data not loaded&quot;</span><span class="p">)</span>
+            <span class="k">return</span>
+
+        <span class="n">available_comps</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">ds_levels</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span>
+
+        <span class="k">if</span> <span class="n">field</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">available_comps</span><span class="p">:</span>
+            <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Field: </span><span class="si">%s</span><span class="s2"> not found. The following fields do exist: &quot;</span> <span class="o">%</span> <span class="n">field</span><span class="p">)</span>
+            <span class="c1"># logging.info(self.data.keys())</span>
+            <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="n">available_comps</span><span class="p">)</span>
+
+            <span class="k">if</span> <span class="n">field</span> <span class="o">==</span> <span class="s2">&quot;LiquidSalinity&quot;</span> <span class="ow">and</span> <span class="s2">&quot;Liquid concentration&quot;</span> <span class="ow">in</span> <span class="n">available_comps</span><span class="p">:</span>
+                <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Using Liquid concentration instead&quot;</span><span class="p">)</span>
+                <span class="n">field</span> <span class="o">=</span> <span class="s2">&quot;Liquid concentration&quot;</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="k">return</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">data_load_method</span> <span class="o">==</span> <span class="bp">self</span><span class="o">.</span><span class="n">XARRAY</span><span class="p">:</span>
+
+            <span class="c1"># ds_lev = self.ds_amr.sel(level=level)</span>
+            <span class="c1"># ds_lev = self.ds_levels[level].sel(level=level)</span>
+            <span class="n">ds_lev</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">ds_levels</span><span class="p">[</span><span class="n">level</span><span class="p">]</span>
+
+            <span class="n">ld</span> <span class="o">=</span> <span class="n">ds_lev</span><span class="p">[</span><span class="n">field</span><span class="p">]</span>
+
+            <span class="c1"># Set covered cells to NaN</span>
+            <span class="c1"># This is really slow, I&#39;m sure there&#39;s a faster way</span>
+            <span class="k">if</span> <span class="n">valid_only</span> <span class="ow">and</span> <span class="n">level</span> <span class="o">&lt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">num_levels</span> <span class="o">-</span> <span class="mi">1</span><span class="p">:</span>
+                <span class="n">coarseness</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">levels</span><span class="p">[</span><span class="n">level</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">REF_RATIO</span><span class="p">]</span>
+                <span class="n">fine_level</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">ds_levels</span><span class="p">[</span><span class="n">level</span> <span class="o">+</span> <span class="mi">1</span><span class="p">][</span><span class="n">field</span><span class="p">])</span>
+                <span class="n">temp</span> <span class="o">=</span> <span class="n">fine_level</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span>
+                    <span class="p">(</span>
+                        <span class="n">fine_level</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">//</span> <span class="n">coarseness</span><span class="p">,</span>
+                        <span class="n">coarseness</span><span class="p">,</span>
+                        <span class="n">fine_level</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">//</span> <span class="n">coarseness</span><span class="p">,</span>
+                        <span class="n">coarseness</span><span class="p">,</span>
+                    <span class="p">)</span>
+                <span class="p">)</span>
+                <span class="n">coarse_fine</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">temp</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">3</span><span class="p">))</span>
+
+                <span class="n">isnan</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">isnan</span><span class="p">(</span><span class="n">coarse_fine</span><span class="p">)</span>
+                <span class="c1"># ld = ld.where(isnan == True)</span>
+                <span class="n">ld</span> <span class="o">=</span> <span class="n">ld</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">isnan</span><span class="p">)</span>
+
+            <span class="c1"># By default, swap to python indexing</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">python_index_ordering</span><span class="p">:</span>
+                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">space_dim</span> <span class="o">==</span> <span class="mi">3</span><span class="p">:</span>
+                    <span class="n">ld</span> <span class="o">=</span> <span class="n">ld</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="s2">&quot;z&quot;</span><span class="p">,</span> <span class="s2">&quot;y&quot;</span><span class="p">,</span> <span class="s2">&quot;x&quot;</span><span class="p">)</span>
+                <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">space_dim</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
+                    <span class="n">ld</span> <span class="o">=</span> <span class="n">ld</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="s2">&quot;y&quot;</span><span class="p">,</span> <span class="s2">&quot;x&quot;</span><span class="p">)</span>
+
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">ld</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">single_box</span><span class="p">(</span><span class="n">field</span><span class="p">,</span> <span class="n">level</span><span class="p">)</span>
+
+        <span class="n">ld</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">scale_slice_transform</span><span class="p">(</span><span class="n">ld</span><span class="p">)</span>
+
+        <span class="c1"># If this is the x-component of a vector, and we&#39;re reflecting, we need to also make the field negative</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">reflect</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">field</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;x&quot;</span><span class="p">:</span>
+                <span class="n">ld</span> <span class="o">=</span> <span class="o">-</span><span class="n">ld</span>
+            <span class="k">elif</span> <span class="n">field</span> <span class="o">==</span> <span class="s2">&quot;streamfunction&quot;</span><span class="p">:</span>
+                <span class="n">ld</span> <span class="o">=</span> <span class="o">-</span><span class="n">ld</span>
+
+        <span class="k">return</span> <span class="n">ld</span>
+
+<div class="viewcode-block" id="PltFile.scale_slice_transform"><a class="viewcode-back" href="../../api.html#chombopy.plotfile.PltFile.scale_slice_transform">[docs]</a>    <span class="k">def</span> <span class="nf">scale_slice_transform</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">data</span><span class="p">,</span> <span class="n">no_reflect</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+
+<span class="sd">        :param data:</span>
+<span class="sd">        :type data: xr.Dataset</span>
+<span class="sd">        :param no_reflect:</span>
+<span class="sd">        :type no_reflect: bool</span>
+<span class="sd">        :return:</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">indices</span><span class="p">:</span>
+            <span class="n">data</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">indices</span><span class="p">]</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">reflect</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">no_reflect</span><span class="p">:</span>
+            <span class="c1"># flip will change both the data values and the x coordinate</span>
+            <span class="n">data</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">flip</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+
+            <span class="c1"># reset the x coordinate</span>
+            <span class="n">data</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">assign_coords</span><span class="p">(</span><span class="n">x</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">flip</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">coords</span><span class="p">[</span><span class="s2">&quot;x&quot;</span><span class="p">]))</span>
+
+        <span class="k">return</span> <span class="n">data</span></div>
+
+    <span class="k">def</span> <span class="nf">plot_field</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">field</span><span class="p">):</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">load_data</span><span class="p">()</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">data_load_method</span> <span class="o">==</span> <span class="bp">self</span><span class="o">.</span><span class="n">NATIVE</span><span class="p">:</span>
+
+            <span class="n">cmap</span> <span class="o">=</span> <span class="n">pyplot</span><span class="o">.</span><span class="n">get_cmap</span><span class="p">(</span><span class="s2">&quot;PiYG&quot;</span><span class="p">)</span>
+
+            <span class="n">ld</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_level_data</span><span class="p">(</span><span class="n">field</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+            <span class="n">x</span><span class="p">,</span> <span class="n">y</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_mesh_grid</span><span class="p">()</span>
+            <span class="n">img</span> <span class="o">=</span> <span class="n">pyplot</span><span class="o">.</span><span class="n">pcolormesh</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">ld</span><span class="p">,</span> <span class="n">cmap</span><span class="o">=</span><span class="n">cmap</span><span class="p">)</span>
+
+            <span class="c1"># make a color bar</span>
+            <span class="n">pyplot</span><span class="o">.</span><span class="n">colorbar</span><span class="p">(</span><span class="n">img</span><span class="p">,</span> <span class="n">cmap</span><span class="o">=</span><span class="n">cmap</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
+
+            <span class="n">pyplot</span><span class="o">.</span><span class="n">xlabel</span><span class="p">(</span><span class="s2">&quot;$x$&quot;</span><span class="p">)</span>
+            <span class="n">pyplot</span><span class="o">.</span><span class="n">xlabel</span><span class="p">(</span><span class="s2">&quot;$z$&quot;</span><span class="p">)</span>
+
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">pass</span>
+            <span class="c1"># logging.info(self.ds.field_list)</span>
+
+            <span class="c1"># plot = yt.SlicePlot(self.ds, &#39;z&#39;, &quot;Porosity&quot;)</span>
+            <span class="c1"># plot.save()</span>
+
+    <span class="k">def</span> <span class="nf">single_box</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">field</span><span class="p">,</span> <span class="n">level</span><span class="o">=</span><span class="mi">0</span><span class="p">):</span>
+        <span class="c1"># width = self.prob_domain[2] + 1 - self.prob_domain[0]</span>
+        <span class="c1"># height = self.prob_domain[3] + 1 - self.prob_domain[1]</span>
+        <span class="c1">#</span>
+        <span class="c1"># field_arr = np.empty([height, width])</span>
+        <span class="c1">#</span>
+        <span class="c1"># for box_i in range(0, len(self.levels[0][&#39;boxes&#39;])):</span>
+        <span class="c1">#     box = self.levels[level][&#39;boxes&#39;][box_i]</span>
+        <span class="c1">#     # logging.info(box)</span>
+        <span class="c1">#</span>
+        <span class="c1">#     this_box = self.data[field][&#39;data&#39;][0][box_i]</span>
+        <span class="c1">#     # logging.info(this_box)</span>
+        <span class="c1">#</span>
+        <span class="c1">#     ioffset = box[0] - self.prob_domain[0]</span>
+        <span class="c1">#     joffset = box[1] - self.prob_domain[1]</span>
+        <span class="c1">#</span>
+        <span class="c1">#     for i in range(0, box[2] + 1 - box[0]):</span>
+        <span class="c1">#         for j in range(0, box[3] + 1 - box[1]):</span>
+        <span class="c1">#             # logging.info(str(i) + &#39;, &#39; + str(j))</span>
+        <span class="c1">#             field_arr[j + joffset][i + ioffset] = this_box[j][i]</span>
+        <span class="n">ds</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_level_data</span><span class="p">(</span><span class="n">field</span><span class="p">,</span> <span class="n">level</span><span class="p">)</span>
+        <span class="n">field_arr</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">ds</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">field_arr</span>
+
+<div class="viewcode-block" id="PltFile.set_scale_slice_transform"><a class="viewcode-back" href="../../api.html#chombopy.plotfile.PltFile.set_scale_slice_transform">[docs]</a>    <span class="k">def</span> <span class="nf">set_scale_slice_transform</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">indices</span><span class="p">,</span> <span class="n">reflect</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot; Describe how to extract data &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">indices</span> <span class="o">=</span> <span class="n">indices</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">reflect</span> <span class="o">=</span> <span class="n">reflect</span></div>
+
+    <span class="k">def</span> <span class="nf">reset_scale_slice_transform</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">indices</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">reflect</span> <span class="o">=</span> <span class="kc">None</span>
+
+    <span class="k">def</span> <span class="nf">get_field_label</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">field_name</span><span class="p">):</span>
+
+        <span class="k">if</span> <span class="n">field_name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">FIELD_LABEL</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">FIELD_LABEL</span><span class="p">[</span><span class="n">field_name</span><span class="p">]</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">return</span> <span class="n">field_name</span>
+
+    <span class="k">def</span> <span class="nf">compute_diagnostic_vars</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="c1"># First get parameters</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">inputs</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
+                <span class="s2">&quot;No inputs file available, so do not know parameters and cannot compute diagnostic variables&quot;</span>
+            <span class="p">)</span>
+            <span class="n">sys</span><span class="o">.</span><span class="n">exit</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span>
+
+        <span class="n">conc_ratio</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">inputs</span><span class="p">[</span><span class="s2">&quot;parameters.compositionRatio&quot;</span><span class="p">])</span>
+        <span class="n">stefan</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">inputs</span><span class="p">[</span><span class="s2">&quot;parameters.stefan&quot;</span><span class="p">])</span>
+        <span class="n">cp</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">inputs</span><span class="p">[</span><span class="s2">&quot;parameters.specificHeatRatio&quot;</span><span class="p">])</span>
+        <span class="k">if</span> <span class="s2">&quot;parameters.waterDistributionCoeff&quot;</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">inputs</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+            <span class="n">pc</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">inputs</span><span class="p">[</span><span class="s2">&quot;parameters.waterDistributionCoeff&quot;</span><span class="p">])</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">pc</span> <span class="o">=</span> <span class="mf">1e-5</span>
+
+        <span class="n">theta_eutectic</span> <span class="o">=</span> <span class="mf">0.0</span>
+
+        <span class="k">for</span> <span class="n">level</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">num_levels</span><span class="p">):</span>
+            <span class="n">enthalpy_ds</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_level_data</span><span class="p">(</span><span class="s2">&quot;Enthalpy&quot;</span><span class="p">,</span> <span class="n">level</span><span class="p">)</span>
+            <span class="n">bulk_salinity_ds</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_level_data</span><span class="p">(</span><span class="s2">&quot;Bulk concentration&quot;</span><span class="p">,</span> <span class="n">level</span><span class="p">)</span>
+
+            <span class="n">enthalpy_eutectic</span> <span class="o">=</span> <span class="n">enthalpy_ds</span><span class="o">.</span><span class="n">copy</span><span class="p">(</span><span class="n">deep</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span><span class="o">.</span><span class="n">rename</span><span class="p">(</span><span class="s2">&quot;Enthalpy eutectic&quot;</span><span class="p">)</span>
+            <span class="n">enthalpy_solidus</span> <span class="o">=</span> <span class="n">enthalpy_ds</span><span class="o">.</span><span class="n">copy</span><span class="p">(</span><span class="n">deep</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span><span class="o">.</span><span class="n">rename</span><span class="p">(</span><span class="s2">&quot;Enthalpy solidus&quot;</span><span class="p">)</span>
+            <span class="n">enthalpy_liquidus</span> <span class="o">=</span> <span class="n">enthalpy_ds</span><span class="o">.</span><span class="n">copy</span><span class="p">(</span><span class="n">deep</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span><span class="o">.</span><span class="n">rename</span><span class="p">(</span><span class="s2">&quot;Enthalpy liquidus&quot;</span><span class="p">)</span>
+
+            <span class="c1"># porosity = enthalpy.copy(deep=True).rename(&#39;Porosity&#39;)</span>
+            <span class="c1"># temperature = enthalpy.copy(deep=True).rename(&#39;Temperature&#39;)</span>
+            <span class="c1"># liquid_salinity = enthalpy.copy(deep=True).rename(&#39;Liquid concentration&#39;)</span>
+            <span class="c1"># solid_salinity = enthalpy.copy(deep=True).rename(&#39;Solid concentration&#39;)</span>
+
+            <span class="n">enthalpy</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">enthalpy_ds</span><span class="p">)</span>
+            <span class="n">bulk_salinity</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">bulk_salinity_ds</span><span class="p">)</span>
+
+            <span class="n">enthalpy_eutectic</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">enthalpy_eutectic</span><span class="p">)</span>
+            <span class="n">enthalpy_solidus</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">enthalpy_solidus</span><span class="p">)</span>
+            <span class="n">enthalpy_liquidus</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">enthalpy_liquidus</span><span class="p">)</span>
+
+            <span class="n">porosity</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">empty</span><span class="p">(</span><span class="n">enthalpy</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+            <span class="n">temperature</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">empty</span><span class="p">(</span><span class="n">enthalpy</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+            <span class="n">liquid_salinity</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">empty</span><span class="p">(</span><span class="n">enthalpy</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+            <span class="n">solid_salinity</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">empty</span><span class="p">(</span><span class="n">enthalpy</span><span class="o">.</span><span class="n">shape</span><span class="p">)</span>
+
+            <span class="c1"># Now compute bounding energies</span>
+            <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Computing bounding energy&quot;</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">idx</span><span class="p">,</span> <span class="n">_</span> <span class="ow">in</span> <span class="n">np</span><span class="o">.</span><span class="n">ndenumerate</span><span class="p">(</span><span class="n">enthalpy</span><span class="p">):</span>
+                <span class="n">eutectic_porosity</span> <span class="o">=</span> <span class="p">(</span><span class="n">conc_ratio</span> <span class="o">+</span> <span class="n">bulk_salinity</span><span class="p">[</span><span class="n">idx</span><span class="p">])</span> <span class="o">/</span> <span class="p">(</span>
+                    <span class="n">theta_eutectic</span> <span class="o">+</span> <span class="n">conc_ratio</span>
+                <span class="p">)</span>
+                <span class="n">enthalpy_eutectic</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
+                    <span class="n">eutectic_porosity</span> <span class="o">*</span> <span class="p">(</span><span class="n">stefan</span> <span class="o">+</span> <span class="n">theta_eutectic</span> <span class="o">*</span> <span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="n">cp</span><span class="p">))</span>
+                    <span class="o">+</span> <span class="n">cp</span> <span class="o">*</span> <span class="n">theta_eutectic</span>
+                <span class="p">)</span>
+                <span class="n">enthalpy_solidus</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span> <span class="o">=</span> <span class="n">cp</span> <span class="o">*</span> <span class="p">(</span>
+                    <span class="n">theta_eutectic</span> <span class="o">+</span> <span class="nb">max</span><span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="p">(</span><span class="o">-</span><span class="n">bulk_salinity</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span> <span class="o">-</span> <span class="n">conc_ratio</span><span class="p">)</span> <span class="o">/</span> <span class="n">pc</span><span class="p">)</span>
+                <span class="p">)</span>
+                <span class="n">enthalpy_liquidus</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
+                    <span class="n">stefan</span> <span class="o">-</span> <span class="n">bulk_salinity</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span> <span class="o">+</span> <span class="n">theta_eutectic</span> <span class="o">+</span> <span class="n">theta_eutectic</span>
+                <span class="p">)</span>
+
+            <span class="c1"># eutectic_porosity = (conc_ratio + bulk_salinity) / (theta_eutectic + conc_ratio)</span>
+            <span class="c1"># enthalpy_eutectic = eutectic_porosity * (stefan + theta_eutectic * (1 - cp)) + cp * theta_eutectic</span>
+            <span class="c1"># enthalpy_solidus = cp * (theta_eutectic + np.max(0.0, (-bulk_salinity - conc_ratio) / pc))</span>
+            <span class="c1"># enthalpy_liquidus = stefan - bulk_salinity + theta_eutectic + theta_eutectic</span>
+
+            <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Computing diagnostic variables&quot;</span><span class="p">)</span>
+            <span class="c1"># Compute diagnostic variables</span>
+            <span class="c1"># for j in range(cols):</span>
+            <span class="c1">#</span>
+            <span class="c1">#     for i in range(rows):</span>
+
+            <span class="c1"># replaced loop over [j,i] with loop over [idx] for 3D compatibility</span>
+            <span class="k">for</span> <span class="n">idx</span><span class="p">,</span> <span class="n">_</span> <span class="ow">in</span> <span class="n">np</span><span class="o">.</span><span class="n">ndenumerate</span><span class="p">(</span><span class="n">enthalpy</span><span class="p">):</span>
+                <span class="k">if</span> <span class="n">enthalpy</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span> <span class="o">&lt;=</span> <span class="n">enthalpy_solidus</span><span class="p">[</span><span class="n">idx</span><span class="p">]:</span>
+                    <span class="n">porosity</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.0</span>
+                    <span class="n">temperature</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span> <span class="o">=</span> <span class="n">enthalpy</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span> <span class="o">/</span> <span class="n">cp</span>
+                    <span class="n">liquid_salinity</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.0</span>
+                    <span class="n">solid_salinity</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span> <span class="o">=</span> <span class="n">bulk_salinity</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span>
+                <span class="k">elif</span> <span class="n">enthalpy</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span> <span class="o">&lt;=</span> <span class="n">enthalpy_eutectic</span><span class="p">[</span><span class="n">idx</span><span class="p">]:</span>
+                    <span class="n">porosity</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="n">enthalpy</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span> <span class="o">-</span> <span class="n">theta_eutectic</span> <span class="o">*</span> <span class="n">cp</span><span class="p">)</span> <span class="o">/</span> <span class="p">(</span>
+                        <span class="n">stefan</span> <span class="o">+</span> <span class="n">theta_eutectic</span> <span class="o">*</span> <span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="n">cp</span><span class="p">)</span>
+                    <span class="p">)</span>
+                    <span class="n">temperature</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span> <span class="o">=</span> <span class="n">theta_eutectic</span>
+                    <span class="n">liquid_salinity</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span> <span class="o">=</span> <span class="n">theta_eutectic</span>
+                    <span class="n">solid_salinity</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span> <span class="o">=</span> <span class="n">bulk_salinity</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span> <span class="o">/</span> <span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="n">porosity</span><span class="p">[</span><span class="n">idx</span><span class="p">])</span>
+                <span class="k">elif</span> <span class="n">enthalpy</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span> <span class="o">&lt;</span> <span class="n">enthalpy_liquidus</span><span class="p">[</span><span class="n">idx</span><span class="p">]:</span>
+                    <span class="n">a</span> <span class="o">=</span> <span class="n">conc_ratio</span> <span class="o">*</span> <span class="p">(</span><span class="n">cp</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span> <span class="o">+</span> <span class="n">stefan</span> <span class="o">*</span> <span class="p">(</span><span class="n">pc</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span>
+                    <span class="n">b</span> <span class="o">=</span> <span class="p">(</span>
+                        <span class="n">conc_ratio</span> <span class="o">*</span> <span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">cp</span><span class="p">)</span>
+                        <span class="o">+</span> <span class="n">enthalpy</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span> <span class="o">*</span> <span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="n">pc</span><span class="p">)</span>
+                        <span class="o">-</span> <span class="n">bulk_salinity</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span> <span class="o">*</span> <span class="p">(</span><span class="n">cp</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span>
+                        <span class="o">-</span> <span class="n">pc</span> <span class="o">*</span> <span class="n">stefan</span>
+                    <span class="p">)</span>
+                    <span class="n">c</span> <span class="o">=</span> <span class="p">(</span><span class="n">bulk_salinity</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span> <span class="o">+</span> <span class="n">conc_ratio</span><span class="p">)</span> <span class="o">*</span> <span class="n">cp</span> <span class="o">+</span> <span class="n">pc</span> <span class="o">*</span> <span class="n">enthalpy</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span>
+                    <span class="n">porosity</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="o">-</span><span class="n">b</span> <span class="o">-</span> <span class="n">np</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="n">b</span> <span class="o">*</span> <span class="n">b</span> <span class="o">-</span> <span class="mi">4</span> <span class="o">*</span> <span class="n">a</span> <span class="o">*</span> <span class="n">c</span><span class="p">))</span> <span class="o">/</span> <span class="p">(</span><span class="mi">2</span> <span class="o">*</span> <span class="n">a</span><span class="p">)</span>
+
+                    <span class="n">liquid_salinity</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
+                        <span class="n">bulk_salinity</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span> <span class="o">+</span> <span class="n">conc_ratio</span> <span class="o">*</span> <span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="n">porosity</span><span class="p">[</span><span class="n">idx</span><span class="p">])</span>
+                    <span class="p">)</span> <span class="o">/</span> <span class="p">(</span><span class="n">porosity</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span> <span class="o">+</span> <span class="n">pc</span> <span class="o">*</span> <span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="n">porosity</span><span class="p">[</span><span class="n">idx</span><span class="p">]))</span>
+                    <span class="n">temperature</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span> <span class="o">=</span> <span class="o">-</span><span class="n">liquid_salinity</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span>
+                    <span class="n">solid_salinity</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
+                        <span class="n">pc</span> <span class="o">*</span> <span class="n">bulk_salinity</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span> <span class="o">-</span> <span class="n">conc_ratio</span> <span class="o">*</span> <span class="n">porosity</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span>
+                    <span class="p">)</span> <span class="o">/</span> <span class="p">(</span><span class="n">porosity</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span> <span class="o">+</span> <span class="n">pc</span> <span class="o">*</span> <span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="n">porosity</span><span class="p">[</span><span class="n">idx</span><span class="p">]))</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">porosity</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span> <span class="o">=</span> <span class="mf">1.0</span>
+                    <span class="n">temperature</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span> <span class="o">=</span> <span class="n">enthalpy</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span> <span class="o">-</span> <span class="n">stefan</span>
+                    <span class="n">liquid_salinity</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span> <span class="o">=</span> <span class="n">bulk_salinity</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span>
+                    <span class="n">solid_salinity</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.0</span>
+
+            <span class="c1"># Finally, save data into boxes</span>
+
+            <span class="n">ds_porosity</span> <span class="o">=</span> <span class="n">enthalpy_ds</span><span class="o">.</span><span class="n">copy</span><span class="p">(</span><span class="n">deep</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span><span class="o">.</span><span class="n">rename</span><span class="p">(</span><span class="s2">&quot;Porosity&quot;</span><span class="p">)</span>
+            <span class="n">ds_porosity</span><span class="o">.</span><span class="n">values</span> <span class="o">=</span> <span class="n">porosity</span>
+
+            <span class="n">ds_temperature</span> <span class="o">=</span> <span class="n">enthalpy_ds</span><span class="o">.</span><span class="n">copy</span><span class="p">(</span><span class="n">deep</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span><span class="o">.</span><span class="n">rename</span><span class="p">(</span><span class="s2">&quot;Temperature&quot;</span><span class="p">)</span>
+            <span class="n">ds_temperature</span><span class="o">.</span><span class="n">values</span> <span class="o">=</span> <span class="n">temperature</span>
+
+            <span class="n">ds_sl</span> <span class="o">=</span> <span class="n">enthalpy_ds</span><span class="o">.</span><span class="n">copy</span><span class="p">(</span><span class="n">deep</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span><span class="o">.</span><span class="n">rename</span><span class="p">(</span><span class="s2">&quot;Liquid concentration&quot;</span><span class="p">)</span>
+            <span class="n">ds_sl</span><span class="o">.</span><span class="n">values</span> <span class="o">=</span> <span class="n">liquid_salinity</span>
+
+            <span class="n">ds_ss</span> <span class="o">=</span> <span class="n">enthalpy_ds</span><span class="o">.</span><span class="n">copy</span><span class="p">(</span><span class="n">deep</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span><span class="o">.</span><span class="n">rename</span><span class="p">(</span><span class="s2">&quot;Solid concentration&quot;</span><span class="p">)</span>
+            <span class="n">ds_ss</span><span class="o">.</span><span class="n">values</span> <span class="o">=</span> <span class="n">solid_salinity</span>
+
+            <span class="bp">self</span><span class="o">.</span><span class="n">ds_levels</span><span class="p">[</span><span class="n">level</span><span class="p">][</span><span class="s2">&quot;Porosity&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">ds_porosity</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">ds_levels</span><span class="p">[</span><span class="n">level</span><span class="p">][</span><span class="s2">&quot;Temperature&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">ds_temperature</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">ds_levels</span><span class="p">[</span><span class="n">level</span><span class="p">][</span><span class="s2">&quot;Liquid concentration&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">ds_sl</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">ds_levels</span><span class="p">[</span><span class="n">level</span><span class="p">][</span><span class="s2">&quot;Solid concentration&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">ds_ss</span>
+
+            <span class="c1"># available_comps = list(self.ds_levels[0].keys())</span>
+            <span class="c1"># logging.info(&#39;Available comps: %s&#39; % str(available_comps))</span>
+
+    <span class="k">def</span> <span class="nf">get_permeability</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">permeability_function</span><span class="o">=</span><span class="s2">&quot;kozeny&quot;</span><span class="p">,</span> <span class="n">rotate_dims</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+
+        <span class="n">rotate_dims</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_rotate_dims</span><span class="p">(</span><span class="n">rotate_dims</span><span class="p">)</span>
+
+        <span class="n">porosity</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_data</span><span class="p">(</span><span class="s2">&quot;Porosity&quot;</span><span class="p">,</span> <span class="n">rotate_dims</span><span class="o">=</span><span class="n">rotate_dims</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">permeability_function</span> <span class="o">==</span> <span class="s2">&quot;kozeny&quot;</span><span class="p">:</span>
+
+            <span class="c1"># Cap max porosity just below one to avoid dividing by 0</span>
+            <span class="n">porosity</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">clip</span><span class="p">(</span><span class="n">porosity</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">1</span> <span class="o">-</span> <span class="mi">10</span> <span class="o">**</span> <span class="p">(</span><span class="o">-</span><span class="mi">10</span><span class="p">))</span>
+
+            <span class="n">liquid_permeability</span> <span class="o">=</span> <span class="n">porosity</span> <span class="o">**</span> <span class="mi">3</span> <span class="o">/</span> <span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="n">porosity</span><span class="p">)</span> <span class="o">**</span> <span class="mi">2</span>
+
+            <span class="k">if</span> <span class="s2">&quot;parameters.heleShawPermeability&quot;</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">inputs</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                <span class="n">hele_shaw_permeability</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">inputs</span><span class="p">[</span><span class="s2">&quot;parameters.heleShawPermeability&quot;</span><span class="p">]</span>
+                <span class="p">)</span>
+            <span class="k">elif</span> <span class="s2">&quot;parameters.nonDimReluctance&quot;</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">inputs</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                <span class="n">hele_shaw_permeability</span> <span class="o">=</span> <span class="mi">1</span> <span class="o">/</span> <span class="nb">float</span><span class="p">(</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">inputs</span><span class="p">[</span><span class="s2">&quot;parameters.nonDimReluctance&quot;</span><span class="p">]</span>
+                <span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
+                    <span class="s2">&quot;Unable to determine Hele-Shaw permeability, cannot find either parameters.heleShawPermeability &quot;</span>
+                    <span class="s2">&quot;or parameters.nonDimReluctance in the inputs file. &quot;</span>
+                <span class="p">)</span>
+                <span class="n">sys</span><span class="o">.</span><span class="n">exit</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span>
+
+            <span class="n">total_permeability</span> <span class="o">=</span> <span class="p">(</span>
+                <span class="n">hele_shaw_permeability</span> <span class="o">**</span> <span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span> <span class="o">+</span> <span class="n">liquid_permeability</span> <span class="o">**</span> <span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span>
+            <span class="p">)</span> <span class="o">**</span> <span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span>
+
+        <span class="k">elif</span> <span class="n">permeability_function</span> <span class="o">==</span> <span class="s2">&quot;cubic&quot;</span><span class="p">:</span>
+            <span class="n">total_permeability</span> <span class="o">=</span> <span class="n">porosity</span> <span class="o">**</span> <span class="mi">3</span>
+
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">total_permeability</span> <span class="o">=</span> <span class="mf">1.0</span>
+
+        <span class="k">return</span> <span class="n">total_permeability</span>
+
+    <span class="k">def</span> <span class="nf">num_channels</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">z_ml</span><span class="p">):</span>
+
+        <span class="n">bulk_salinity</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_level_data</span><span class="p">(</span><span class="s2">&quot;Bulk concentration&quot;</span><span class="p">)</span>
+
+        <span class="n">peak_height_scaling</span> <span class="o">=</span> <span class="mf">2.0</span>
+        <span class="n">separation</span> <span class="o">=</span> <span class="mi">5</span>  <span class="c1"># minimum pixel separation</span>
+
+        <span class="c1"># dom = self.prob_domain</span>
+        <span class="c1"># min_length = min(dom)</span>
+        <span class="c1"># separation = float(min_length) /</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">space_dim</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
+
+            <span class="n">separation</span> <span class="o">=</span> <span class="mi">5</span>  <span class="c1"># minimum pixel separation</span>
+
+            <span class="n">bulk_s_slice</span> <span class="o">=</span> <span class="n">bulk_salinity</span><span class="o">.</span><span class="n">sel</span><span class="p">(</span><span class="n">y</span><span class="o">=</span><span class="n">z_ml</span><span class="p">,</span> <span class="n">method</span><span class="o">=</span><span class="s2">&quot;nearest&quot;</span><span class="p">)</span>
+            <span class="n">vel_slice</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">get_level_data</span><span class="p">(</span><span class="s2">&quot;yDarcy velocity&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">sel</span><span class="p">(</span><span class="n">y</span><span class="o">=</span><span class="n">z_ml</span><span class="p">,</span> <span class="n">method</span><span class="o">=</span><span class="s2">&quot;nearest&quot;</span><span class="p">)</span>
+            <span class="p">)</span>
+            <span class="n">slice_arr</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">bulk_s_slice</span><span class="p">)</span> <span class="o">*</span> <span class="n">vel_slice</span>
+
+            <span class="n">prominence</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">slice_arr</span><span class="o">.</span><span class="n">max</span><span class="p">())</span> <span class="o">/</span> <span class="mf">4.0</span>
+
+            <span class="n">peaks</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">find_peaks</span><span class="p">(</span><span class="n">slice_arr</span><span class="p">,</span> <span class="n">prominence</span><span class="o">=</span><span class="n">prominence</span><span class="p">,</span> <span class="n">distance</span><span class="o">=</span><span class="n">separation</span><span class="p">)</span>
+            <span class="n">num_peaks</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">peaks</span><span class="p">)</span>
+
+            <span class="c1"># logging.info(&#39;Num peaks = %d&#39; % num_peaks)</span>
+            <span class="c1"># x = np.array(slice.coords[&#39;x&#39;])</span>
+            <span class="c1"># import matplotlib.pyplot as plt</span>
+            <span class="c1"># fig = plt.figure()</span>
+            <span class="c1"># ax = fig.gca()</span>
+            <span class="c1"># ax.plot(x, slice_arr)</span>
+            <span class="c1"># x_peaks = x[peaks]</span>
+            <span class="c1"># ax.plot(x_peaks, slice_arr[peaks] , &#39;r.&#39;)</span>
+            <span class="c1"># plt.tight_layout()</span>
+            <span class="c1"># plt.show()</span>
+
+            <span class="k">return</span> <span class="n">num_peaks</span>
+        <span class="k">else</span><span class="p">:</span>
+
+            <span class="n">bulk_s_slice</span> <span class="o">=</span> <span class="n">bulk_salinity</span><span class="o">.</span><span class="n">sel</span><span class="p">(</span><span class="n">z</span><span class="o">=</span><span class="n">z_ml</span><span class="p">,</span> <span class="n">method</span><span class="o">=</span><span class="s2">&quot;nearest&quot;</span><span class="p">)</span>
+
+            <span class="n">vel_slice</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">get_level_data</span><span class="p">(</span><span class="s2">&quot;zDarcy velocity&quot;</span><span class="p">)</span><span class="o">.</span><span class="n">sel</span><span class="p">(</span><span class="n">z</span><span class="o">=</span><span class="n">z_ml</span><span class="p">,</span> <span class="n">method</span><span class="o">=</span><span class="s2">&quot;nearest&quot;</span><span class="p">)</span>
+            <span class="p">)</span>
+
+            <span class="n">slice_arr</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">bulk_s_slice</span><span class="p">)</span> <span class="o">*</span> <span class="n">vel_slice</span>
+            <span class="c1"># slice_arr = slice_arr - slice_arr.min()</span>
+
+            <span class="n">peak_height</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">slice_arr</span><span class="o">.</span><span class="n">max</span><span class="p">())</span> <span class="o">/</span> <span class="n">peak_height_scaling</span>
+            <span class="c1"># logging.info(&#39;threshold_abs = %s&#39; % peak_height)</span>
+
+            <span class="n">coordinates</span> <span class="o">=</span> <span class="n">peak_local_max</span><span class="p">(</span>
+                <span class="n">slice_arr</span><span class="p">,</span>
+                <span class="n">min_distance</span><span class="o">=</span><span class="n">separation</span><span class="p">,</span>
+                <span class="n">threshold_abs</span><span class="o">=</span><span class="n">peak_height</span><span class="p">,</span>
+                <span class="n">exclude_border</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+            <span class="p">)</span>
+
+            <span class="n">num_peaks</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">coordinates</span><span class="p">)</span>
+
+            <span class="c1"># logging.info(&#39;Num channels: %d&#39; % num_peaks)</span>
+            <span class="c1"># import matplotlib.pyplot as plt</span>
+            <span class="c1"># fig = plt.figure()</span>
+            <span class="c1"># ax = fig.gca()</span>
+            <span class="c1"># bulk_s = ax.pcolormesh(slice_arr)</span>
+            <span class="c1"># ax.plot(coordinates[:, 1], coordinates[:, 0], &#39;r+&#39;)</span>
+            <span class="c1"># plt.colorbar(bulk_s)</span>
+            <span class="c1"># plt.tight_layout()</span>
+            <span class="c1"># plt.show()</span>
+
+            <span class="k">return</span> <span class="n">num_peaks</span>
+
+    <span class="k">def</span> <span class="nf">compute_mush_liquid_interface</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+
+        <span class="n">porosity</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_level_data</span><span class="p">(</span><span class="s2">&quot;Porosity&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">space_dim</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
+            <span class="n">z</span> <span class="o">=</span> <span class="n">porosity</span><span class="o">.</span><span class="n">coords</span><span class="p">[</span><span class="s2">&quot;y&quot;</span><span class="p">]</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">z</span> <span class="o">=</span> <span class="n">porosity</span><span class="o">.</span><span class="n">coords</span><span class="p">[</span><span class="s2">&quot;z&quot;</span><span class="p">]</span>
+
+        <span class="n">porosity</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">porosity</span><span class="p">)</span>
+        <span class="n">z_interface</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span>
+        <span class="n">mushy_indices</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">argwhere</span><span class="p">(</span><span class="n">porosity</span> <span class="o">&lt;</span> <span class="mf">1.0</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">mushy_indices</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="c1"># Need to be more careful here</span>
+            <span class="c1"># There can be liquid cells inside/above the mushy layer which we don&#39;t want to consider</span>
+            <span class="c1"># Start from the bottom of the domain and trace cells upwards until we hit mushy cells</span>
+
+            <span class="c1"># Rather than highest liquid cell, consider lowest mushy cell</span>
+            <span class="c1"># iterate over everything but vertical index (which is in the last index)</span>
+            <span class="n">iterate_shape</span> <span class="o">=</span> <span class="n">porosity</span><span class="o">.</span><span class="n">shape</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+            <span class="kn">import</span> <span class="nn">itertools</span>
+
+            <span class="n">liquid_z_indices</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="c1"># for ix in np.arange(0, s[1]):</span>
+
+            <span class="k">for</span> <span class="n">ix</span> <span class="ow">in</span> <span class="n">itertools</span><span class="o">.</span><span class="n">product</span><span class="p">(</span><span class="o">*</span><span class="p">[</span><span class="nb">range</span><span class="p">(</span><span class="n">s</span><span class="p">)</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">iterate_shape</span><span class="p">]):</span>
+                <span class="n">ind</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">ix</span><span class="p">)</span>
+
+                <span class="c1"># Don&#39;t know how to do this in 2d/3d, but should be possible</span>
+                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">space_dim</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
+                    <span class="n">vals</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">argwhere</span><span class="p">(</span><span class="n">porosity</span><span class="p">[</span><span class="n">ind</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="p">:]</span> <span class="o">&lt;</span> <span class="mf">1.0</span><span class="p">)</span>
+                <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">space_dim</span> <span class="o">==</span> <span class="mi">3</span><span class="p">:</span>
+                    <span class="n">vals</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">argwhere</span><span class="p">(</span><span class="n">porosity</span><span class="p">[</span><span class="n">ind</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">ind</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="p">:]</span> <span class="o">&lt;</span> <span class="mf">1.0</span><span class="p">)</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Unknown number of dimensions: </span><span class="si">%d</span><span class="s2">&quot;</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">space_dim</span><span class="p">)</span>
+                    <span class="n">sys</span><span class="o">.</span><span class="n">exit</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span>
+
+                <span class="k">if</span> <span class="n">vals</span><span class="o">.</span><span class="n">any</span><span class="p">():</span>
+                    <span class="n">val</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">amin</span><span class="p">(</span><span class="n">vals</span><span class="p">)</span>
+                    <span class="n">liquid_z_indices</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">val</span><span class="p">)</span>
+
+            <span class="c1"># Eutectic interface:</span>
+            <span class="n">solid_indices</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="c1"># for ix in np.arange(0, s[1]):</span>
+            <span class="c1">#     vals = np.argwhere(porosity[:, ix] &lt; 1e-6)</span>
+            <span class="k">for</span> <span class="n">ix</span> <span class="ow">in</span> <span class="n">itertools</span><span class="o">.</span><span class="n">product</span><span class="p">(</span><span class="o">*</span><span class="p">[</span><span class="nb">range</span><span class="p">(</span><span class="n">s</span><span class="p">)</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">iterate_shape</span><span class="p">]):</span>
+                <span class="n">ind</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">ix</span><span class="p">)</span>
+
+                <span class="c1"># Don&#39;t know how to do this in 2d/3d, but should be possible</span>
+                <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">space_dim</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
+                    <span class="n">vals</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">argwhere</span><span class="p">(</span><span class="n">porosity</span><span class="p">[</span><span class="n">ind</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="p">:]</span> <span class="o">&lt;</span> <span class="mf">1e-6</span><span class="p">)</span>
+                <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">space_dim</span> <span class="o">==</span> <span class="mi">3</span><span class="p">:</span>
+                    <span class="n">vals</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">argwhere</span><span class="p">(</span><span class="n">porosity</span><span class="p">[</span><span class="n">ind</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">ind</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="p">:]</span> <span class="o">&lt;</span> <span class="mf">1e-6</span><span class="p">)</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">logging</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Unknown dimension: </span><span class="si">%d</span><span class="s2">&quot;</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">space_dim</span><span class="p">)</span>
+                    <span class="n">sys</span><span class="o">.</span><span class="n">exit</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span>
+
+                <span class="k">if</span> <span class="n">vals</span><span class="o">.</span><span class="n">any</span><span class="p">():</span>
+                    <span class="n">val</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">amin</span><span class="p">(</span><span class="n">vals</span><span class="p">)</span>
+                    <span class="n">solid_indices</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">val</span><span class="p">)</span>
+
+            <span class="c1"># median_eutectic_boundary = np.median(solid_indices)</span>
+            <span class="c1"># eutectic_interface = median_eutectic_boundary * dx</span>
+            <span class="c1"># eutectic_boundary_cell = int(median_eutectic_boundary)</span>
+
+            <span class="c1"># liquid_indices = [np.amin(np.argwhere(porosity[:, ix] &lt; 1.0)) for ix in np.arange(0, s[1])]</span>
+
+            <span class="k">if</span> <span class="n">liquid_z_indices</span><span class="p">:</span>
+                <span class="n">median_liquid_boundary</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">median</span><span class="p">(</span><span class="n">liquid_z_indices</span><span class="p">))</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">median_liquid_boundary</span> <span class="o">=</span> <span class="mi">0</span>
+
+            <span class="c1"># height = abs(dx * float(median_eutectic_boundary - median_liquid_boundary))</span>
+
+            <span class="n">z_interface</span> <span class="o">=</span> <span class="n">z</span><span class="p">[</span><span class="n">median_liquid_boundary</span><span class="p">]</span>
+            <span class="c1"># ice_ocean_boundary_cell = int(median_liquid_boundary)</span>
+
+            <span class="c1"># If there&#39;s a mushy layer, compute confinement depth</span>
+            <span class="c1"># confinment_depth = dx * (np.max(liquid_z_indices) - ice_ocean_interface)</span>
+            <span class="c1"># data[&#39;channel_confinement_depth&#39;] = confinment_depth</span>
+
+        <span class="k">return</span> <span class="n">z_interface</span></div>
+
+
+<div class="viewcode-block" id="latexify"><a class="viewcode-back" href="../../api.html#chombopy.plotfile.latexify">[docs]</a><span class="k">def</span> <span class="nf">latexify</span><span class="p">(</span><span class="n">fig_width</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span> <span class="n">fig_height</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;Set up matplotlib&#39;s RC params for LaTeX plotting.</span>
+<span class="sd">    Call this before plotting a figure.</span>
+
+<span class="sd">    Parameters</span>
+<span class="sd">    ----------</span>
+<span class="sd">    fig_width : float, optional, inches</span>
+<span class="sd">    fig_height : float,  optional, inches</span>
+
+<span class="sd">    Note that, in the thesis template, the standard column width is just over 5.8 inches and font size is 12pt</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="c1"># code adapted from http://www.scipy.org/Cookbook/Matplotlib/LaTeX_Examples</span>
+
+    <span class="c1"># Width and max height in inches for IEEE journals taken from</span>
+    <span class="c1"># computer.org/cms/Computer.org/Journal%20templates/transactions_art_guide.pdf</span>
+
+    <span class="n">default_fig_width</span> <span class="o">=</span> <span class="mf">5.0</span>
+
+    <span class="c1"># Pretty sure this is the standard caption font size in latex</span>
+    <span class="n">font_size</span> <span class="o">=</span> <span class="mi">9</span>
+    <span class="n">linewidth</span> <span class="o">=</span> <span class="mi">1</span>
+
+    <span class="k">if</span> <span class="n">fig_width</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="c1"># fig_width = 3.39 if columns == 1 else 6.9  # width in inches</span>
+        <span class="n">fig_width</span> <span class="o">=</span> <span class="n">default_fig_width</span>
+
+    <span class="k">if</span> <span class="n">fig_height</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">golden_mean</span> <span class="o">=</span> <span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">sqrt</span><span class="p">(</span><span class="mi">5</span><span class="p">)</span> <span class="o">-</span> <span class="mf">1.0</span><span class="p">)</span> <span class="o">/</span> <span class="mf">2.0</span>  <span class="c1"># Aesthetic ratio</span>
+        <span class="n">fig_height</span> <span class="o">=</span> <span class="n">fig_width</span> <span class="o">*</span> <span class="n">golden_mean</span>  <span class="c1"># height in inches</span>
+
+    <span class="c1"># Need the mathsrfs package for \mathscr if text.usetex = True</span>
+    <span class="n">params</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="s2">&quot;text.latex.preamble&quot;</span><span class="p">:</span> <span class="p">[</span>
+            <span class="s2">&quot;</span><span class="se">\\</span><span class="s2">usepackage</span><span class="si">{gensymb}</span><span class="s2">&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;</span><span class="se">\\</span><span class="s2">usepackage</span><span class="si">{mathrsfs}</span><span class="s2">&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;</span><span class="se">\\</span><span class="s2">usepackage</span><span class="si">{amsmath}</span><span class="s2">&quot;</span><span class="p">,</span>
+        <span class="p">],</span>
+        <span class="s2">&quot;axes.labelsize&quot;</span><span class="p">:</span> <span class="n">font_size</span><span class="p">,</span>
+        <span class="s2">&quot;axes.titlesize&quot;</span><span class="p">:</span> <span class="n">font_size</span><span class="p">,</span>
+        <span class="s2">&quot;legend.fontsize&quot;</span><span class="p">:</span> <span class="n">font_size</span><span class="p">,</span>
+        <span class="s2">&quot;xtick.labelsize&quot;</span><span class="p">:</span> <span class="n">font_size</span><span class="p">,</span>
+        <span class="s2">&quot;ytick.labelsize&quot;</span><span class="p">:</span> <span class="n">font_size</span><span class="p">,</span>
+        <span class="s2">&quot;font.size&quot;</span><span class="p">:</span> <span class="n">font_size</span><span class="p">,</span>
+        <span class="s2">&quot;xtick.direction&quot;</span><span class="p">:</span> <span class="s2">&quot;in&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;ytick.direction&quot;</span><span class="p">:</span> <span class="s2">&quot;in&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;lines.markersize&quot;</span><span class="p">:</span> <span class="mi">3</span><span class="p">,</span>
+        <span class="s2">&quot;lines.linewidth&quot;</span><span class="p">:</span> <span class="n">linewidth</span><span class="p">,</span>
+        <span class="s2">&quot;text.usetex&quot;</span><span class="p">:</span> <span class="kc">True</span><span class="p">,</span>
+        <span class="s2">&quot;figure.figsize&quot;</span><span class="p">:</span> <span class="p">[</span><span class="n">fig_width</span><span class="p">,</span> <span class="n">fig_height</span><span class="p">],</span>
+        <span class="s2">&quot;font.family&quot;</span><span class="p">:</span> <span class="s2">&quot;serif&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;backend&quot;</span><span class="p">:</span> <span class="s2">&quot;ps&quot;</span><span class="p">,</span>
+    <span class="p">}</span>
+
+    <span class="k">if</span> <span class="s2">&quot;osx&quot;</span> <span class="ow">in</span> <span class="n">socket</span><span class="o">.</span><span class="n">gethostname</span><span class="p">():</span>
+        <span class="c1"># params[&#39;text.usetex&#39;] = False</span>
+        <span class="n">params</span><span class="p">[</span><span class="s2">&quot;pgf.texsystem&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;pdflatex&quot;</span>
+        <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">&quot;PATH&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
+            <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">&quot;PATH&quot;</span><span class="p">]</span> <span class="o">+</span> <span class="s2">&quot;:/Library/TeX/texbin/:/usr/local/bin/&quot;</span>
+        <span class="p">)</span>
+
+    <span class="n">matplotlib</span><span class="o">.</span><span class="n">rcParams</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">params</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="latexify2"><a class="viewcode-back" href="../../api.html#chombopy.plotfile.latexify2">[docs]</a><span class="k">def</span> <span class="nf">latexify2</span><span class="p">(</span><span class="n">fig_width</span><span class="o">=</span><span class="mf">5.0</span><span class="p">,</span> <span class="n">fig_height</span><span class="o">=</span><span class="mf">4.0</span><span class="p">):</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Have ended up with two different latex formatting functions, unifying them here. Old version commented below.</span>
+<span class="sd">    :param fig_width:</span>
+<span class="sd">    :param fig_height:</span>
+<span class="sd">    :return:</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">latexify</span><span class="p">(</span><span class="n">fig_width</span><span class="p">,</span> <span class="n">fig_height</span><span class="p">)</span></div>
+
+    <span class="c1"># font_size = 12</span>
+    <span class="c1">#</span>
+    <span class="c1"># params = {&#39;backend&#39;: &#39;ps&#39;,</span>
+    <span class="c1">#           &#39;text.latex.preamble&#39;: [&#39;\\usepackage{gensymb}&#39;, &#39;\\usepackage{mathrsfs}&#39;],</span>
+    <span class="c1">#           &#39;axes.labelsize&#39;: font_size,  # fontsize for x and y labels (was 10)</span>
+    <span class="c1">#           &#39;axes.titlesize&#39;: font_size,</span>
+    <span class="c1">#           &#39;legend.fontsize&#39;: font_size,  # was 10</span>
+    <span class="c1">#           &#39;xtick.labelsize&#39;: font_size,</span>
+    <span class="c1">#           &#39;ytick.labelsize&#39;: font_size,</span>
+    <span class="c1">#           &#39;lines.markersize&#39;: 3,</span>
+    <span class="c1">#           &#39;lines.linewidth&#39;: 1,</span>
+    <span class="c1">#           &#39;text.usetex&#39;: True,</span>
+    <span class="c1">#           &#39;figure.figsize&#39;: [fig_width, fig_height],</span>
+    <span class="c1">#           &#39;font.family&#39;: &#39;serif&#39;</span>
+    <span class="c1">#           }</span>
+    <span class="c1">#</span>
+    <span class="c1"># mpl.rcParams.update(params)</span>
+</pre></div>
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="../../index.html">chombopy</a></h1>
+
+
+
+
+
+
+<p>
+<iframe src="https://ghbtns.com/github-btn.html?user=jrgparkinson&repo=chombopy&type=watch&count=true&size=large&v=2"
+  allowtransparency="true" frameborder="0" scrolling="0" width="200px" height="35px"></iframe>
+</p>
+
+
+
+
+
+<h3>Navigation</h3>
+<p class="caption"><span class="caption-text">Getting Started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../examples.html">Examples</a></li>
+</ul>
+<p class="caption"><span class="caption-text">User Guide</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../plotting.html">Plotting guide</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../inputs.html">Inputs</a></li>
+</ul>
+<p class="caption"><span class="caption-text">Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../plotting-ref.html">Plotting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../inputs-ref.html">Inputs</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="../../index.html">Documentation overview</a><ul>
+  <li><a href="../index.html">Module code</a><ul>
+  </ul></li>
+  </ul></li>
+</ul>
+</div>
+<div id="searchbox" style="display: none" role="search">
+  <h3 id="searchlabel">Quick search</h3>
+    <div class="searchformwrapper">
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" />
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</div>
+<script>$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2020, Jamie Parkinson.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 2.4.4</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.12</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

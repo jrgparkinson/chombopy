@@ -11,6 +11,7 @@ import geopandas as gpd
 from chombopy.inputs import read_inputs
 from itertools import product
 
+LOGGER = logging.getLogger(__name__)
 
 # TODO: Fix: AMR plotting is broken at the moment
 
@@ -28,26 +29,19 @@ class PltFile:
     REF_RATIO = "ref_ratio"
     BOXES = "boxes"
 
-    YT = "YT"
-    NATIVE = "native"
-    XARRAY = "xarray"
-
     # List of names for each direction to be used later
     INDEX_COORDS_NAMES = ["i", "j", "k", "l", "m"]  # add more here if more dimensions
 
     indices = None
     reflect = None
-    ds_amr = None
 
     python_index_ordering = True
 
-    def __init__(self, filename, load_data=False, inputs_file="inputs"):
+    def __init__(self, filename, load_data=True, inputs_file="inputs"):
         self.is_plot_file = False
         self.defined = False
         self.data_loaded = False
         self.ds = None
-
-        self.data_load_method = self.XARRAY
 
         self.ds_levels = []
 
@@ -72,7 +66,7 @@ class PltFile:
         self.data = {}
 
         if not os.path.exists(filename):
-            logging.info('PltFile: file does not exist "%s"' % filename)
+            LOGGER.info('PltFile: file does not exist "%s"' % filename)
             return
         self.filename = filename
 
@@ -96,7 +90,7 @@ class PltFile:
         if os.path.exists(inputs_file_loc):
             self.inputs = read_inputs(inputs_file_loc)
         else:
-            logging.info("Cannot find inputs file %s" % inputs_file_loc)
+            LOGGER.info("Cannot find inputs file %s" % inputs_file_loc)
             self.inputs = None
 
         self.defined = True
@@ -107,41 +101,28 @@ class PltFile:
     def __repr__(self):
         return "<PltFile object for %s>" % self.filename
 
-    def load_data(self, zero_x=False):
-        """ Load the data for this plotfile.
+    def unload_data(self):
+        """
+        Delete existing data (e.g. to save memory)
+        """
+        self.ds_levels = []
+        self.data_loaded = False
 
-        Not done automatically as it can be slow for large files.
+    def load_data(self, zero_x=False):
+        """
+        Load the data for this plotfile.
 
         Parameters
         ----------
         zero_x : bool, optional
             Whether to shift the axes so that the bottom corner is at :math:`x=0`
 
-        Returns
-        -------
-
         """
+
         if self.data_loaded:
             return
 
-        if self.data_load_method in (self.NATIVE, self.XARRAY):
-            self.load_data_native(zero_x)
-        # else:
-        #     self.load_data_yt()
-
-        self.data_loaded = True
-
-    # def load_data_yt(self):
-    #     self.ds = yt.load(self.filename)
-
-    def unload_data(self):
-        self.ds_levels = []
-        self.data_loaded = False
-
-    # noinspection PyUnresolvedReferences
-    def load_data_native(self, zero_x=False):
-
-        logging.info("Loading %s" % self.filename)
+        LOGGER.info("Loading %s" % self.filename)
         h5_file = h5py.File(self.filename, "r")
 
         chombo_group = h5_file["Chombo_global"]
@@ -153,7 +134,6 @@ class PltFile:
         self.iteration = int(attrs["iteration"])
         self.max_level = int(attrs["max_level"])
         self.num_levels = int(attrs["num_levels"])
-        # self.regrid_interval = int(attrs['regrid_interval_0'])
         self.num_comps = int(attrs["num_components"])
         self.space_dim = int(global_attrs["SpaceDim"])
 
@@ -164,8 +144,8 @@ class PltFile:
             name = attrs["component_" + str(i)]
             name = name.decode("UTF-8")
 
-            # Some of my files have wierd xEnthalpy yEnthalpy fields, which we should skip
-            if name == "xEnthalpy" or name == "yEnthalpy":
+            # Might want to avoid importing some names
+            if name in self.skip_component_import_names():
                 continue
 
             # Previously, we treated vectors and scalars differently,
@@ -303,13 +283,6 @@ class PltFile:
 
                 data = level_group["data:datatype=0"]
 
-                # Some other stuff we can get, but don't at the moment:
-                # data_offsets = level_group['data:offsets=0']
-                # data_atts = level_group['data_attributes']
-                # advVel = level_group['advVel:datatype=0']
-                # advVel_offsets = level_group['advVel:offsets=0']
-                # advVel_atts = level_group['advVel_attributes']
-
                 data_unshaped = data[()]
 
                 offset = 0
@@ -341,7 +314,7 @@ class PltFile:
                     ds_box = xr.Dataset({}, coords=coords)
 
                     for comp_name in self.comp_names:
-                        # logging.info('Num cells in a box: ' + str(num_box_cells))
+                        # LOGGER.info('Num cells in a box: ' + str(num_box_cells))
                         comp_offset_finish = comp_offset_start + num_box_cells
 
                         indices = [
@@ -383,13 +356,9 @@ class PltFile:
                     num_box_cells = np.prod(
                         n_cells_dir
                     )  # effectively nx * ny * nz * ...
-                    # num_cells = num_box_cells * num_comps  # also multiply by number of components
-
-                    # num_domain_cells = num_box_cells * num_boxes
 
                     # Now split into individual components
                     # data contains all fields on this level, sort into individual fields
-                    # comp_offset_start = 0
 
                     coords = self.get_coordinates(lo_indices, hi_indices)
 
@@ -429,9 +398,6 @@ class PltFile:
 
                         data_unshaped = data[()]
 
-                        # logging.info('Num cells in a box: ' + str(num_box_cells))
-                        # comp_offset_finish = comp_offset_start + num_box_cells
-
                         component_offset = 0  # this is just 0 because we only get data for this component
 
                         # For vectors, we may have an offset?
@@ -455,16 +421,10 @@ class PltFile:
                             coords,
                         )
 
-                        # component_offset = component_offset + (num_box_cells*num_comps)
-
                     # Move onto next box
                     box_offset_scalar = box_offset_scalar + num_box_cells
 
                     ds_boxes.append(ds_box)
-
-            # ds_level = xr.merge(ds_boxes)
-
-            # ds_level = xr.auto_combine(ds_boxes[1:])
 
             # Update will replace in place
             first_box = 1
@@ -480,8 +440,6 @@ class PltFile:
                 ds_level.coords[x_y_coords_names[d]] = (
                     ds_level.coords[self.INDEX_COORDS_NAMES[d]] + 0.5
                 ) * lev_dx
-            # ds_level.coords['x'] = ds_level.coords['i'] * lev_dx
-            # ds_level.coords['y'] = ds_level.coords['j'] * lev_dx
 
             if zero_x:
                 ds_level.coords["x"] = ds_level.coords["x"] - min(ds_level.coords["x"])
@@ -492,9 +450,6 @@ class PltFile:
                     {self.INDEX_COORDS_NAMES[d]: x_y_coords_names[d]}
                 )
 
-            # ds_level = ds_level.swap_dims({'i': 'x'})
-            # ds_level = ds_level.swap_dims({'j': 'y'})
-
             # TODO: should level be an attribute or co-ordinate? need to try with actual AMR data
             ds_level.attrs["level"] = level
 
@@ -504,7 +459,27 @@ class PltFile:
 
         h5_file.close()
 
+        self.data_loaded = True
+
     def get_coordinates(self, lo, hi):
+        """
+
+        Get coordinates in index space given the low and high box limits
+
+        Parameters
+        ----------
+        lo : tuple
+            Lower limits of the domain in each dimension e.g. (0, 0).
+        hi : tuple
+            Upper limits of the domain in each dimension e.g. (5, 5).
+
+        Returns
+        -------
+        coordinates : dict
+            coordinates (in index space) in each dimension
+            e.g. {'i': numpy.array([0,1,2,3,4,5]), 'j': numpy.array([0,1,2,3,4])}
+
+        """
         coordinates = {}
         for d in range(self.space_dim):
             coords_dir = np.arange(lo[d], hi[d] + 1)
@@ -515,11 +490,36 @@ class PltFile:
     def get_box_comp_data(
         self, data_unshaped, level, indices, comp_name, n_cells_dir, coords
     ):
+        """
 
+        Parse a list of data values from a Chombo HDF5 file into structured data
+
+        Parameters
+        ----------
+        data_unshaped : list
+            1D list of data values
+        level : int
+            Level of refinement data is from
+        indices : tuple
+            Upper and lower limits to sample from `data_unshaped`
+        comp_name : str
+            Name of the field this data represents
+        n_cells_dir : tuple
+            Number of cells in each spatial dimension i.e. (Nx, Ny, Nz)
+        coords : dict
+            Coordinates in each spatial dimension,
+            e.g. {'i': [0,1,2,3], 'j': [0,1,2,3]}
+
+        Returns
+        -------
+        xarray.DataArray
+            Structured data
+
+        """
         data_box_comp = data_unshaped[indices[0] : indices[1]]
 
         if len(data_box_comp) == 0:
-            logging.info("ERROR - no data in box")
+            LOGGER.info("ERROR - no data in box")
 
         # Chombo data is indexed in reverse (i.e. data[k, j, i]), so whilst we have n_cells_dir = [Nx, Ny, Nz],
         # we need to reshape according to [Nz, Ny, Nx] before then transposing to get
@@ -540,7 +540,6 @@ class PltFile:
             field_type = "vector"
 
         dim_list = self.INDEX_COORDS_NAMES[: self.space_dim]
-        # dim_list = dim_list[::-1]
         extended_coords = coords
         extended_coords["level"] = level
 
@@ -562,41 +561,121 @@ class PltFile:
         return xarr_component_box
 
     def get_indices(self, box):
+        """
+
+        Parse box extents from Chombo HDF5 files into low and high limits
+
+        Parameters
+        ----------
+        box : list
+            Chombo HDF5 format box limits,
+            e.g. [x_lo, y_lo, x_hi, y_hi] = [0,0,1,1]
+
+        Returns
+        -------
+        lo, hi : list
+            Low and high limits, [x_lo, y_lo, ...], [x_hi, y_hi, ...]
+            e.g [0,0], [1,1]
+
+        """
         lo = [box[i] for i in range(self.space_dim)]
         hi = [box[i] for i in range(self.space_dim, 2 * self.space_dim)]
         return lo, hi
 
-    def plot_outlines(self, ax, colors=None):
-        """ Plot all level outlines (except level 0)"""
+    def get_level_data(self, field, level=0, valid_only=False):
+        """
+        Get data for some field on a particular level of refinement.
 
-        for level in np.arange(1, len(self.level_outlines)):
-            self.plot_outline(ax, level, colors)
+        Parameters
+        ----------
+        field : str
+            The field/component name to get data for
+        level : int
+            The level of refinement to get data on
+        valid_only : bool
+            Whether to set covered (not valid) regions to NaN. Covered regions are those
+            which are covered by finer levels.
 
-    def plot_outline(self, ax, level, colors=None):
-        """ Plot level outline for a particular color"""
+        Returns
+        -------
+        data : xarray.DataArray
+            Data for the specified field on the given level.
 
-        # Default colors
-        if not colors:
-            colors = [[0, 0, 0, 1.0], [1, 0, 0, 1.0], [0, 1, 0, 1.0], [0, 0, 1, 1.0]]
+        """
+        if len(self.comp_names) == 0:
+            LOGGER.info(
+                "No data loaded, perhaps you meant to call PltFile.load_data() first? "
+            )
 
-        ec = colors[level][:]
+        if not self.data_loaded:
+            LOGGER.info("Data not loaded")
+            return
 
-        outline = self.level_outlines[level]
+        available_comps = list(self.ds_levels[0].keys())
 
-        # Shrink outline slightly
+        if field not in available_comps:
+            LOGGER.info("Field: %s not found. The following fields do exist: " % field)
+            # LOGGER.info(self.data.keys())
+            LOGGER.info(available_comps)
+            return
 
-        # outline
-        # outline = outline.scale(0.99, 0.99)
-        # dx = self.levels[level][self.DX]
-        # domain = Polygon([(dx, dx), (1-dx, dx), (1-dx, 1-dx), (dx, 1-dx)])
-        # intersect = gpd.sjoin(domain, outline, how="inner", op='intersection')
-        # intersect.plot(ax=ax, edgecolor=ec, facecolor=[1,1,1,0], linewidth=2.0)
+        ds_lev = self.ds_levels[level]
 
-        outline = outline.scale(0.99, 0.99)
-        outline.plot(ax=ax, edgecolor=ec, facecolor=[1, 1, 1, 0], linewidth=3.0)
+        ld = ds_lev[field]
+
+        # Set covered cells to NaN
+        # This is really slow, I'm sure there's a faster way
+        if valid_only and level < self.num_levels - 1:
+            coarseness = self.levels[level][self.REF_RATIO]
+            fine_level = np.array(self.ds_levels[level + 1][field])
+            temp = fine_level.reshape(
+                (
+                    fine_level.shape[0] // coarseness,
+                    coarseness,
+                    fine_level.shape[1] // coarseness,
+                    coarseness,
+                )
+            )
+            coarse_fine = np.sum(temp, axis=(1, 3))
+
+            isnan = np.isnan(coarse_fine)
+            # ld = ld.where(isnan == True)
+            ld = ld.where(isnan)
+
+        # By default, swap to python indexing
+        if self.python_index_ordering:
+            if self.space_dim == 3:
+                ld = ld.transpose("z", "y", "x")
+            elif self.space_dim == 2:
+                ld = ld.transpose("y", "x")
+
+        ld = self.scale_slice_transform(ld)
+
+        # If this is the x-component of a vector, and we're reflecting, we need to also make the field negative
+        if self.reflect:
+            if self.should_negate_field_upon_reflection(field):
+                ld = -ld
+
+        return ld
+
 
     @staticmethod
     def get_mesh_grid_n(arr, grow=0):
+        """
+
+        Parameters
+        ----------
+        arr : xarray.DataArray
+            Data Array for some field, which must contain coordinates
+        grow : int
+            Number of grid cells to extend grid by in each dimension
+
+        Returns
+        -------
+        x, y : numpy.array
+            coordinates in x and y directions
+
+        """
         x = np.array(arr.coords["x"])
         y = np.array(arr.coords["y"])
 
@@ -613,8 +692,48 @@ class PltFile:
 
         return x, y
 
+
+
+    def get_rotate_dims(self, rotate_dims):
+        """
+        Backward compatibility fix. Originally user had to ask to rotate dimensions to match
+        python indexing. We now do this by default.
+
+        Parameters
+        ----------
+        rotate_dims : bool
+            Whether to transpose the spatial dimensions.
+
+        Returns
+        -------
+        rotate_dims : bool
+            Backwards compatible option for whether to transpose spatial dimensions.
+
+        """
+        if self.python_index_ordering:
+            rotate_dims = not rotate_dims
+
+        return rotate_dims
+
     @staticmethod
     def get_mesh_grid_xarray(arr, grow=False):
+        """
+
+        Gets the coordinates for the given DataArray as numpy arrays
+
+        Parameters
+        ----------
+        arr : xarray.DataArray
+            DataArray (including coordinates) to get coordinates for
+        grow : bool
+            Whether to grow the domain by :math:`\Delta x/2` in each direction to extend to the edges of the domain
+
+        Returns
+        -------
+        x, y : numpy.array
+            Coordinates in x and y directions.
+
+        """
         x = np.array(arr.coords["x"])
         y = np.array(arr.coords["y"])
 
@@ -630,23 +749,28 @@ class PltFile:
 
         return x, y
 
-    def get_rotate_dims(self, rotate_dims):
-        """ Backward compatibility fix. Originally user had to ask to rotate dimensions to match
-        python indexing. We now do this by default. """
+    def get_mesh_grid(self, rotate_dims=False, extend_grid=True):
+        """
 
-        if self.python_index_ordering:
-            rotate_dims = not rotate_dims
+        Returns coordinate grids in each dimension
 
-        return rotate_dims
+        Parameters
+        ----------
+        rotate_dims : bool, optional
+            Whether to transpose the grids
+        extend_grid : bool, optional
+            Whether to extend the grid by :math:`\Delta x/2` in each dimension to cover the domain edges,
+            rather than stopping at the center of the cells on the edge of the domain.
 
-    def get_mesh_grid(self, level=0, rotate_dims=False, extend_grid=True):
+        Returns
+        -------
+        x, y, z : numpy.mgrid
+            Grid in each dimension
 
+        """
         rotate_dims = self.get_rotate_dims(rotate_dims)
 
-        # dx = self.levels[level][self.DX]
-
         components = list(self.data.keys())
-        # components = [c.decode('UTF-8') for c in components]
 
         field = self.get_level_data(components[0])
 
@@ -697,14 +821,26 @@ class PltFile:
                 x = x_new
                 y = y_new
 
-            # y = self.scale_slice_transform(y)
-            # x = self.scale_slice_transform(x, no_reflect=True)
-
             return x, y
 
-    # Added for compatibility with ChkFile interface
     def get_data(self, var_name, rotate_dims=False):
+        """
 
+        Get data for some field, added for legacy support
+
+        Parameters
+        ----------
+        var_name : str
+            Field to get data for
+        rotate_dims : bool, optional
+            Whether to transpose the field to match expected alignment of axis
+
+        Returns
+        -------
+        data : numpy.array
+            Data values for given field
+
+        """
         rotate_dims = self.get_rotate_dims(rotate_dims)
 
         data = self.get_level_data(var_name)
@@ -719,87 +855,40 @@ class PltFile:
 
         return data
 
-    def get_level_data(self, field, level=0, valid_only=False):
+    def should_negate_field_upon_reflection(self, field):
+        """
+        Override to change the sign of certain fields upon reflection given their name.
 
-        if len(self.comp_names) == 0:
-            logging.info(
-                "No data loaded, perhaps you meant to call PltFile.load_data() first? "
-            )
+        Parameters
+        ----------
+        field : str
+            Name of field
 
-        if self.data_load_method == self.YT:
-            pass
-            # TODO: write this
+        Returns
+        -------
+        negate_field : bool
+            Whether to change the sign of the field upon reflection
 
-        if not self.data_loaded:
-            logging.info("Data not loaded")
-            return
-
-        available_comps = list(self.ds_levels[0].keys())
-
-        if field not in available_comps:
-            logging.info("Field: %s not found. The following fields do exist: " % field)
-            # logging.info(self.data.keys())
-            logging.info(available_comps)
-            return
-
-        if self.data_load_method == self.XARRAY:
-
-            # ds_lev = self.ds_amr.sel(level=level)
-            # ds_lev = self.ds_levels[level].sel(level=level)
-            ds_lev = self.ds_levels[level]
-
-            ld = ds_lev[field]
-
-            # Set covered cells to NaN
-            # This is really slow, I'm sure there's a faster way
-            if valid_only and level < self.num_levels - 1:
-                coarseness = self.levels[level][self.REF_RATIO]
-                fine_level = np.array(self.ds_levels[level + 1][field])
-                temp = fine_level.reshape(
-                    (
-                        fine_level.shape[0] // coarseness,
-                        coarseness,
-                        fine_level.shape[1] // coarseness,
-                        coarseness,
-                    )
-                )
-                coarse_fine = np.sum(temp, axis=(1, 3))
-
-                isnan = np.isnan(coarse_fine)
-                # ld = ld.where(isnan == True)
-                ld = ld.where(isnan)
-
-            # By default, swap to python indexing
-            if self.python_index_ordering:
-                if self.space_dim == 3:
-                    ld = ld.transpose("z", "y", "x")
-                elif self.space_dim == 2:
-                    ld = ld.transpose("y", "x")
-
-        else:
-            ld = self.single_box(field, level)
-
-        ld = self.scale_slice_transform(ld)
-
-        # If this is the x-component of a vector, and we're reflecting, we need to also make the field negative
-        if self.reflect:
-            if field[0] == "x":
-                ld = -ld
-            elif field == "streamfunction":
-                ld = -ld
-
-        return ld
+        """
+        return False
 
     def scale_slice_transform(self, data, no_reflect=False):
         """
+        Perform transformations on the dataset.
 
-        :param data:
-        :type data: xr.Dataset
-        :param no_reflect:
-        :type no_reflect: bool
-        :return:
+        Parameters
+        ----------
+        data : xarray.DataArray
+            data to be transformed
+        no_reflect : bool
+            Whether to override the pre-defined choices to reflect data or not in this transformation
+
+        Returns
+        -------
+        data : xarray.DataArray
+            Transformed data
+
         """
-
         if self.indices:
             data = data[self.indices]
 
@@ -813,36 +902,95 @@ class PltFile:
         return data
 
     def plot_field(self, field):
+        """
+        Plot the field using matplotlib and some default options.
 
+        Parameters
+        ----------
+        field : str
+            Field name to plot
+        """
         self.load_data()
 
-        if self.data_load_method == self.NATIVE:
+        cmap = pyplot.get_cmap("PiYG")
 
-            cmap = pyplot.get_cmap("PiYG")
+        ld = self.get_level_data(field, 0)
+        x, y = self.get_mesh_grid()
+        img = pyplot.pcolormesh(x, y, ld, cmap=cmap)
 
-            ld = self.get_level_data(field, 0)
-            x, y = self.get_mesh_grid()
-            img = pyplot.pcolormesh(x, y, ld, cmap=cmap)
+        # make a color bar
+        pyplot.colorbar(img, cmap=cmap, label="")
 
-            # make a color bar
-            pyplot.colorbar(img, cmap=cmap, label="")
+        pyplot.xlabel("$x$")
+        pyplot.xlabel("$z$")
 
-            pyplot.xlabel("$x$")
-            pyplot.xlabel("$z$")
+    def plot_outlines(self, ax, colors=None):
+        """
 
+        Plot all level outlines (except level 0)
 
-    def single_box(self, field, level=0):
-        ds = self.get_level_data(field, level)
-        field_arr = np.array(ds)
+        Parameters
+        ----------
+        ax : matplotlib.axes
+            Axes to plot onto
+        colors :  list, optional
+            List of colours to plot on each level, from which the relevant colour for the required level is sampled.
+        """
+        for level in np.arange(1, len(self.level_outlines)):
+            self.plot_outline(ax, level, colors)
 
-        return field_arr
+    def plot_outline(self, ax, level, colors=None):
+        """
+
+        Plot level outline for a particular color
+
+        Parameters
+        ----------
+        ax : matplotlib.axes
+            Axes to plot onto
+        level : int
+            Level outline to plot
+        colors :  list, optional
+            List of colours to plot on each level, from which the relevant colour for the required level is sampled.
+        """
+        # Default colors
+        if not colors:
+            colors = [[0, 0, 0, 1.0], [1, 0, 0, 1.0], [0, 1, 0, 1.0], [0, 0, 1, 1.0]]
+
+        ec = colors[level][:]
+
+        outline = self.level_outlines[level]
+
+        outline = outline.scale(0.99, 0.99)
+        outline.plot(ax=ax, edgecolor=ec, facecolor=[1, 1, 1, 0], linewidth=3.0)
 
     def set_scale_slice_transform(self, indices, reflect=False):
-        """ Describe how to extract data """
+        """
+        Describe how to extract data.
+
+        Parameters
+        ----------
+        indices :
+        reflect : bool
+        """
         self.indices = indices
         self.reflect = reflect
 
     def reset_scale_slice_transform(self):
+        """
+        Reset transform settings to their initial value (none)
+        """
         self.indices = None
         self.reflect = None
+
+    def skip_component_import_names(self):
+        """
+        Provides an interface to skip the import of certain component names
+
+        Returns
+        -------
+        component_names : list
+            component names to not import
+        """
+        return []
 

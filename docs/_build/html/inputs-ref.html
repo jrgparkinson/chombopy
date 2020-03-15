@@ -1,0 +1,166 @@
+
+<!DOCTYPE html>
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta charset="utf-8" />
+    <title>Inputs &#8212; chombopy 0.1.2 documentation</title>
+    <link rel="stylesheet" href="_static/alabaster.css" type="text/css" />
+    <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    <script id="documentation_options" data-url_root="./" src="_static/documentation_options.js"></script>
+    <script src="_static/jquery.js"></script>
+    <script src="_static/underscore.js"></script>
+    <script src="_static/doctools.js"></script>
+    <script src="_static/language_data.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="prev" title="Plotting" href="plotting-ref.html" />
+   
+  <link rel="stylesheet" href="_static/custom.css" type="text/css" />
+  
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9" />
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <div class="section" id="module-chombopy.inputs">
+<span id="inputs"></span><h1>Inputs<a class="headerlink" href="#module-chombopy.inputs" title="Permalink to this headline">¶</a></h1>
+<dl class="function">
+<dt id="chombopy.inputs.add_params">
+<code class="sig-prename descclassname">chombopy.inputs.</code><code class="sig-name descname">add_params</code><span class="sig-paren">(</span><em class="sig-param">default_params</em>, <em class="sig-param">extra_params</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/chombopy/inputs.html#add_params"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#chombopy.inputs.add_params" title="Permalink to this definition">¶</a></dt>
+<dd><p>Add params from extra_params to defaultParams</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="chombopy.inputs.array_to_string">
+<code class="sig-prename descclassname">chombopy.inputs.</code><code class="sig-name descname">array_to_string</code><span class="sig-paren">(</span><em class="sig-param">array</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/chombopy/inputs.html#array_to_string"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#chombopy.inputs.array_to_string" title="Permalink to this definition">¶</a></dt>
+<dd><p>Convert an array to a string with the elements separated by spaces i.e.
+[a,b,c] -&gt; a b c</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="chombopy.inputs.is_power_of_two">
+<code class="sig-prename descclassname">chombopy.inputs.</code><code class="sig-name descname">is_power_of_two</code><span class="sig-paren">(</span><em class="sig-param">n</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/chombopy/inputs.html#is_power_of_two"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#chombopy.inputs.is_power_of_two" title="Permalink to this definition">¶</a></dt>
+<dd><p>Determine if a number if a power of 2</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="chombopy.inputs.isfloat">
+<code class="sig-prename descclassname">chombopy.inputs.</code><code class="sig-name descname">isfloat</code><span class="sig-paren">(</span><em class="sig-param">value</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/chombopy/inputs.html#isfloat"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#chombopy.inputs.isfloat" title="Permalink to this definition">¶</a></dt>
+<dd><p>Determine if value is a float</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="chombopy.inputs.isint">
+<code class="sig-prename descclassname">chombopy.inputs.</code><code class="sig-name descname">isint</code><span class="sig-paren">(</span><em class="sig-param">value</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/chombopy/inputs.html#isint"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#chombopy.inputs.isint" title="Permalink to this definition">¶</a></dt>
+<dd><p>Determines if value is an integer</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="chombopy.inputs.read_inputs">
+<code class="sig-prename descclassname">chombopy.inputs.</code><code class="sig-name descname">read_inputs</code><span class="sig-paren">(</span><em class="sig-param">inputs_file</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/chombopy/inputs.html#read_inputs"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#chombopy.inputs.read_inputs" title="Permalink to this definition">¶</a></dt>
+<dd><p>Load up an inputs file and parse it into a dictionary</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="chombopy.inputs.string_to_array">
+<code class="sig-prename descclassname">chombopy.inputs.</code><code class="sig-name descname">string_to_array</code><span class="sig-paren">(</span><em class="sig-param">string</em>, <em class="sig-param">conversion=None</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/chombopy/inputs.html#string_to_array"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#chombopy.inputs.string_to_array" title="Permalink to this definition">¶</a></dt>
+<dd><p>Convert a string separated by spaces to an array, i.e.
+a b c -&gt; [a,b,c]</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="chombopy.inputs.write_inputs">
+<code class="sig-prename descclassname">chombopy.inputs.</code><code class="sig-name descname">write_inputs</code><span class="sig-paren">(</span><em class="sig-param">location</em>, <em class="sig-param">params</em>, <em class="sig-param">ignore_list=None</em>, <em class="sig-param">do_sort=True</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/chombopy/inputs.html#write_inputs"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#chombopy.inputs.write_inputs" title="Permalink to this definition">¶</a></dt>
+<dd><p>Write out a set of parameters to an inputs file</p>
+</dd></dl>
+
+</div>
+
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="index.html">chombopy</a></h1>
+
+
+
+
+
+
+<p>
+<iframe src="https://ghbtns.com/github-btn.html?user=jrgparkinson&repo=chombopy&type=watch&count=true&size=large&v=2"
+  allowtransparency="true" frameborder="0" scrolling="0" width="200px" height="35px"></iframe>
+</p>
+
+
+
+
+
+<h3>Navigation</h3>
+<p class="caption"><span class="caption-text">Getting Started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="examples.html">Examples</a></li>
+</ul>
+<p class="caption"><span class="caption-text">User Guide</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="plotting.html">Plotting guide</a></li>
+<li class="toctree-l1"><a class="reference internal" href="inputs.html">Inputs</a></li>
+</ul>
+<p class="caption"><span class="caption-text">Reference</span></p>
+<ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="plotting-ref.html">Plotting</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Inputs</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="index.html">Documentation overview</a><ul>
+      <li>Previous: <a href="plotting-ref.html" title="previous chapter">Plotting</a></li>
+  </ul></li>
+</ul>
+</div>
+<div id="searchbox" style="display: none" role="search">
+  <h3 id="searchlabel">Quick search</h3>
+    <div class="searchformwrapper">
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" />
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</div>
+<script>$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2020, Jamie Parkinson.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 2.4.4</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.12</a>
+      
+      |
+      <a href="_sources/inputs-ref.rst.txt"
+          rel="nofollow">Page source</a>
+    </div>
+
+    
+
+    
+  </body>
+</html>

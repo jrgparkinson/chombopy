@@ -1,0 +1,1108 @@
+
+<!DOCTYPE html>
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta charset="utf-8" />
+    <title>chombopy.plotting &#8212; chombopy 0.1.2 documentation</title>
+    <link rel="stylesheet" href="../../_static/alabaster.css" type="text/css" />
+    <link rel="stylesheet" href="../../_static/pygments.css" type="text/css" />
+    <script id="documentation_options" data-url_root="../../" src="../../_static/documentation_options.js"></script>
+    <script src="../../_static/jquery.js"></script>
+    <script src="../../_static/underscore.js"></script>
+    <script src="../../_static/doctools.js"></script>
+    <script src="../../_static/language_data.js"></script>
+    <script async="async" src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/latest.js?config=TeX-AMS-MML_HTMLorMML"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" />
+   
+  <link rel="stylesheet" href="../../_static/custom.css" type="text/css" />
+  
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9" />
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <h1>Source code for chombopy.plotting</h1><div class="highlight"><pre>
+<span></span><span class="kn">import</span> <span class="nn">h5py</span>
+<span class="kn">import</span> <span class="nn">numpy</span> <span class="k">as</span> <span class="nn">np</span>
+<span class="kn">from</span> <span class="nn">matplotlib</span> <span class="kn">import</span> <span class="n">pyplot</span>
+<span class="kn">import</span> <span class="nn">re</span>
+<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span> <span class="nn">logging</span>
+<span class="kn">import</span> <span class="nn">xarray</span> <span class="k">as</span> <span class="nn">xr</span>
+<span class="kn">from</span> <span class="nn">shapely.ops</span> <span class="kn">import</span> <span class="n">cascaded_union</span>
+<span class="kn">from</span> <span class="nn">shapely.geometry</span> <span class="kn">import</span> <span class="n">Polygon</span>
+<span class="kn">import</span> <span class="nn">geopandas</span> <span class="k">as</span> <span class="nn">gpd</span>
+<span class="kn">from</span> <span class="nn">chombopy.inputs</span> <span class="kn">import</span> <span class="n">read_inputs</span>
+<span class="kn">from</span> <span class="nn">itertools</span> <span class="kn">import</span> <span class="n">product</span>
+
+<span class="n">LOGGER</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
+
+<span class="c1"># TODO: Fix: AMR plotting is broken at the moment</span>
+
+
+<div class="viewcode-block" id="PltFile"><a class="viewcode-back" href="../../plotting-ref.html#chombopy.plotting.PltFile">[docs]</a><span class="k">class</span> <span class="nc">PltFile</span><span class="p">:</span>
+    <span class="sd">&quot;&quot;&quot;</span>
+
+<span class="sd">    Class to represent a Chombo plot file.</span>
+
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">NUM_COMPS</span> <span class="o">=</span> <span class="s2">&quot;num_comps&quot;</span>
+    <span class="n">DATA</span> <span class="o">=</span> <span class="s2">&quot;data&quot;</span>
+    <span class="n">DX</span> <span class="o">=</span> <span class="s2">&quot;dx&quot;</span>
+    <span class="n">DT</span> <span class="o">=</span> <span class="s2">&quot;dt&quot;</span>
+    <span class="n">REF_RATIO</span> <span class="o">=</span> <span class="s2">&quot;ref_ratio&quot;</span>
+    <span class="n">BOXES</span> <span class="o">=</span> <span class="s2">&quot;boxes&quot;</span>
+
+    <span class="c1"># List of names for each direction to be used later</span>
+    <span class="n">INDEX_COORDS_NAMES</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;i&quot;</span><span class="p">,</span> <span class="s2">&quot;j&quot;</span><span class="p">,</span> <span class="s2">&quot;k&quot;</span><span class="p">,</span> <span class="s2">&quot;l&quot;</span><span class="p">,</span> <span class="s2">&quot;m&quot;</span><span class="p">]</span>  <span class="c1"># add more here if more dimensions</span>
+
+    <span class="n">indices</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">reflect</span> <span class="o">=</span> <span class="kc">None</span>
+
+    <span class="n">python_index_ordering</span> <span class="o">=</span> <span class="kc">True</span>
+
+    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">filename</span><span class="p">,</span> <span class="n">load_data</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">inputs_file</span><span class="o">=</span><span class="s2">&quot;inputs&quot;</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">is_plot_file</span> <span class="o">=</span> <span class="kc">False</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">defined</span> <span class="o">=</span> <span class="kc">False</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">data_loaded</span> <span class="o">=</span> <span class="kc">False</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">ds</span> <span class="o">=</span> <span class="kc">None</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">ds_levels</span> <span class="o">=</span> <span class="p">[]</span>
+
+        <span class="c1"># Initialise to bogus values</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">iteration</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">max_level</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">num_levels</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">num_comps</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">space_dim</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">comp_names</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">levels</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">time</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">frame</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">prob_domain</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">domain_size</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">xarr_data</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">level_outlines</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">full_domain_size</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">inputs</span> <span class="o">=</span> <span class="kc">None</span>
+
+        <span class="c1"># Now read all the component names</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">data</span> <span class="o">=</span> <span class="p">{}</span>
+
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="n">filename</span><span class="p">):</span>
+            <span class="n">LOGGER</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s1">&#39;PltFile: file does not exist &quot;</span><span class="si">%s</span><span class="s1">&quot;&#39;</span> <span class="o">%</span> <span class="n">filename</span><span class="p">)</span>
+            <span class="k">return</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">filename</span> <span class="o">=</span> <span class="n">filename</span>
+
+        <span class="c1"># Get the plot prefix and frame number assuming a format</span>
+        <span class="n">prefix_format</span> <span class="o">=</span> <span class="sa">r</span><span class="s2">&quot;([^\d\/]*)(\d+)\.\dd\.hdf5&quot;</span>
+        <span class="n">plot_file_name</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">filename</span>
+
+        <span class="n">m</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">search</span><span class="p">(</span><span class="n">prefix_format</span><span class="p">,</span> <span class="n">plot_file_name</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">m</span> <span class="ow">and</span> <span class="n">m</span><span class="o">.</span><span class="n">groups</span><span class="p">()</span> <span class="ow">and</span> <span class="nb">len</span><span class="p">(</span><span class="n">m</span><span class="o">.</span><span class="n">groups</span><span class="p">())</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">plot_prefix</span> <span class="o">=</span> <span class="n">m</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">frame</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">m</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="mi">2</span><span class="p">))</span>
+
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">plot_prefix</span> <span class="o">=</span> <span class="kc">None</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">frame</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span>
+
+        <span class="c1"># get inputs</span>
+        <span class="n">output_folder</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">abspath</span><span class="p">(</span><span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">filename</span><span class="p">,</span> <span class="s2">&quot;..&quot;</span><span class="p">))</span>
+        <span class="n">inputs_file_loc</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">output_folder</span><span class="p">,</span> <span class="n">inputs_file</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="n">inputs_file_loc</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">inputs</span> <span class="o">=</span> <span class="n">read_inputs</span><span class="p">(</span><span class="n">inputs_file_loc</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">LOGGER</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Cannot find inputs file </span><span class="si">%s</span><span class="s2">&quot;</span> <span class="o">%</span> <span class="n">inputs_file_loc</span><span class="p">)</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">inputs</span> <span class="o">=</span> <span class="kc">None</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">defined</span> <span class="o">=</span> <span class="kc">True</span>
+
+        <span class="k">if</span> <span class="n">load_data</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">load_data</span><span class="p">()</span>
+
+    <span class="k">def</span> <span class="fm">__repr__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="s2">&quot;&lt;PltFile object for </span><span class="si">%s</span><span class="s2">&gt;&quot;</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">filename</span>
+
+<div class="viewcode-block" id="PltFile.unload_data"><a class="viewcode-back" href="../../plotting-ref.html#chombopy.plotting.PltFile.unload_data">[docs]</a>    <span class="k">def</span> <span class="nf">unload_data</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Delete existing data (e.g. to save memory)</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">ds_levels</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">data_loaded</span> <span class="o">=</span> <span class="kc">False</span></div>
+
+<div class="viewcode-block" id="PltFile.load_data"><a class="viewcode-back" href="../../plotting-ref.html#chombopy.plotting.PltFile.load_data">[docs]</a>    <span class="k">def</span> <span class="nf">load_data</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">zero_x</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Load the data for this plotfile.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        zero_x : bool, optional</span>
+<span class="sd">            Whether to shift the axes so that the bottom corner is at :math:`x=0`</span>
+
+<span class="sd">        &quot;&quot;&quot;</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">data_loaded</span><span class="p">:</span>
+            <span class="k">return</span>
+
+        <span class="n">LOGGER</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Loading </span><span class="si">%s</span><span class="s2">&quot;</span> <span class="o">%</span> <span class="bp">self</span><span class="o">.</span><span class="n">filename</span><span class="p">)</span>
+        <span class="n">h5_file</span> <span class="o">=</span> <span class="n">h5py</span><span class="o">.</span><span class="n">File</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">filename</span><span class="p">,</span> <span class="s2">&quot;r&quot;</span><span class="p">)</span>
+
+        <span class="n">chombo_group</span> <span class="o">=</span> <span class="n">h5_file</span><span class="p">[</span><span class="s2">&quot;Chombo_global&quot;</span><span class="p">]</span>
+        <span class="n">global_attrs</span> <span class="o">=</span> <span class="n">chombo_group</span><span class="o">.</span><span class="n">attrs</span>
+
+        <span class="n">attrs</span> <span class="o">=</span> <span class="n">h5_file</span><span class="o">.</span><span class="n">attrs</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">time</span> <span class="o">=</span> <span class="n">attrs</span><span class="p">[</span><span class="s2">&quot;time&quot;</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">iteration</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">attrs</span><span class="p">[</span><span class="s2">&quot;iteration&quot;</span><span class="p">])</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">max_level</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">attrs</span><span class="p">[</span><span class="s2">&quot;max_level&quot;</span><span class="p">])</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">num_levels</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">attrs</span><span class="p">[</span><span class="s2">&quot;num_levels&quot;</span><span class="p">])</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">num_comps</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">attrs</span><span class="p">[</span><span class="s2">&quot;num_components&quot;</span><span class="p">])</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">space_dim</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">global_attrs</span><span class="p">[</span><span class="s2">&quot;SpaceDim&quot;</span><span class="p">])</span>
+
+        <span class="c1"># Now read all the component names</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">data</span> <span class="o">=</span> <span class="p">{}</span>
+
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">num_comps</span><span class="p">):</span>
+            <span class="n">name</span> <span class="o">=</span> <span class="n">attrs</span><span class="p">[</span><span class="s2">&quot;component_&quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">i</span><span class="p">)]</span>
+            <span class="n">name</span> <span class="o">=</span> <span class="n">name</span><span class="o">.</span><span class="n">decode</span><span class="p">(</span><span class="s2">&quot;UTF-8&quot;</span><span class="p">)</span>
+
+            <span class="c1"># Might want to avoid importing some names</span>
+            <span class="k">if</span> <span class="n">name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">skip_component_import_names</span><span class="p">():</span>
+                <span class="k">continue</span>
+
+            <span class="c1"># Previously, we treated vectors and scalars differently,</span>
+            <span class="c1"># now we just store vector components as separate scalar fields</span>
+            <span class="c1"># retained previous code (commented out below) in case I ever want it</span>
+            <span class="n">actual_name</span> <span class="o">=</span> <span class="n">name</span>
+
+            <span class="bp">self</span><span class="o">.</span><span class="n">data</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span><span class="bp">self</span><span class="o">.</span><span class="n">NUM_COMPS</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">DATA</span><span class="p">:</span> <span class="p">[]}</span>
+
+            <span class="bp">self</span><span class="o">.</span><span class="n">data</span><span class="p">[</span><span class="n">actual_name</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">DATA</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">nan</span><span class="p">]</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">num_levels</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">comp_names</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">actual_name</span><span class="p">)</span>
+
+        <span class="n">ds_levels</span> <span class="o">=</span> <span class="p">[]</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">levels</span> <span class="o">=</span> <span class="p">[{}]</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">num_levels</span>
+        <span class="k">for</span> <span class="n">level</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">num_levels</span><span class="p">):</span>
+            <span class="n">level_group</span> <span class="o">=</span> <span class="n">h5_file</span><span class="p">[</span><span class="s2">&quot;level_&quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">level</span><span class="p">)]</span>
+
+            <span class="c1"># Data is stored differently in plot files and chk files</span>
+            <span class="c1"># much of what follows will be different as a result</span>
+            <span class="k">if</span> <span class="s2">&quot;data:datatype=0&quot;</span> <span class="ow">in</span> <span class="nb">list</span><span class="p">(</span><span class="n">level_group</span><span class="o">.</span><span class="n">keys</span><span class="p">()):</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">is_plot_file</span> <span class="o">=</span> <span class="kc">True</span>
+
+            <span class="n">group_atts</span> <span class="o">=</span> <span class="n">level_group</span><span class="o">.</span><span class="n">attrs</span>
+            <span class="n">boxes</span> <span class="o">=</span> <span class="n">level_group</span><span class="p">[</span><span class="s2">&quot;boxes&quot;</span><span class="p">]</span>
+            <span class="n">lev_dx</span> <span class="o">=</span> <span class="n">group_atts</span><span class="p">[</span><span class="s2">&quot;dx&quot;</span><span class="p">]</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">levels</span><span class="p">[</span><span class="n">level</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">DX</span><span class="p">:</span> <span class="n">lev_dx</span><span class="p">,</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">DT</span><span class="p">:</span> <span class="n">group_atts</span><span class="p">[</span><span class="s2">&quot;dt&quot;</span><span class="p">],</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">REF_RATIO</span><span class="p">:</span> <span class="n">group_atts</span><span class="p">[</span><span class="s2">&quot;ref_ratio&quot;</span><span class="p">],</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">BOXES</span><span class="p">:</span> <span class="nb">list</span><span class="p">(</span><span class="n">boxes</span><span class="p">),</span>
+            <span class="p">}</span>
+
+            <span class="c1"># Some attributes on level 0 apply to whole hierarchy</span>
+            <span class="k">if</span> <span class="n">level</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">time</span> <span class="o">=</span> <span class="n">group_atts</span><span class="p">[</span><span class="s2">&quot;time&quot;</span><span class="p">]</span>
+
+                <span class="bp">self</span><span class="o">.</span><span class="n">prob_domain</span> <span class="o">=</span> <span class="n">group_atts</span><span class="p">[</span><span class="s2">&quot;prob_domain&quot;</span><span class="p">]</span>
+
+                <span class="bp">self</span><span class="o">.</span><span class="n">domain_size</span> <span class="o">=</span> <span class="p">[</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">prob_domain</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">levels</span><span class="p">[</span><span class="n">level</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">DX</span><span class="p">]</span>
+                    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">prob_domain</span><span class="p">))</span>
+                <span class="p">]</span>
+
+                <span class="c1"># Moving to ND</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">full_domain_size</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">domain_size</span>
+                <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">space_dim</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">space_dim</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">space_dim</span><span class="p">):</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">full_domain_size</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">full_domain_size</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">+</span> <span class="n">lev_dx</span>
+                    <span class="c1"># self.fullDomainSize[3] = self.fullDomainSize[3] + lev_dx</span>
+
+            <span class="c1"># Create a box which spans the whole domain</span>
+            <span class="c1"># Initialise with a box spanning the whole domain, then add data where it exists</span>
+            <span class="c1"># Important to do it like this for refined levels, where the whole domain isn&#39;t covered with data</span>
+            <span class="n">size</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">space_dim</span><span class="p">):</span>
+                <span class="n">lev_dom_box_dir</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">full_domain_size</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">+</span> <span class="n">lev_dx</span> <span class="o">/</span> <span class="mi">2</span><span class="p">,</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">full_domain_size</span><span class="p">[</span><span class="n">i</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">space_dim</span><span class="p">]</span> <span class="o">-</span> <span class="n">lev_dx</span> <span class="o">/</span> <span class="mi">2</span><span class="p">,</span>
+                    <span class="n">lev_dx</span><span class="p">,</span>
+                <span class="p">)</span>
+                <span class="n">size</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">lev_dom_box_dir</span><span class="o">.</span><span class="n">size</span><span class="p">)</span>
+
+            <span class="n">blank_data</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">empty</span><span class="p">(</span><span class="nb">tuple</span><span class="p">(</span><span class="n">size</span><span class="p">))</span>
+            <span class="n">blank_data</span><span class="p">[:]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span>
+
+            <span class="c1"># Create an empty dataset which spans entire domain, which we will use as a template for loading data into</span>
+            <span class="n">coords</span> <span class="o">=</span> <span class="p">{}</span>
+            <span class="n">box_size</span> <span class="o">=</span> <span class="p">()</span>
+            <span class="k">for</span> <span class="n">d</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">space_dim</span><span class="p">):</span>
+                <span class="n">coords_dir</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">prob_domain</span><span class="p">[</span><span class="n">d</span><span class="p">],</span> <span class="bp">self</span><span class="o">.</span><span class="n">prob_domain</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">space_dim</span> <span class="o">+</span> <span class="n">d</span><span class="p">]</span> <span class="o">+</span> <span class="mi">1</span>
+                <span class="p">)</span>
+                <span class="n">coords</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">INDEX_COORDS_NAMES</span><span class="p">[</span><span class="n">d</span><span class="p">]]</span> <span class="o">=</span> <span class="n">coords_dir</span>
+                <span class="n">box_size</span> <span class="o">=</span> <span class="n">box_size</span> <span class="o">+</span> <span class="p">(</span><span class="n">coords_dir</span><span class="o">.</span><span class="n">size</span><span class="p">,)</span>  <span class="c1"># append to tuple of sizes</span>
+
+            <span class="n">blank_data</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">empty</span><span class="p">(</span><span class="n">box_size</span><span class="p">)</span>
+            <span class="n">ds_dom_box</span> <span class="o">=</span> <span class="n">xr</span><span class="o">.</span><span class="n">Dataset</span><span class="p">({},</span> <span class="n">coords</span><span class="o">=</span><span class="n">coords</span><span class="p">)</span>
+
+            <span class="c1"># Use indexes rather than x, y for now - then convert to x,y later</span>
+            <span class="c1"># this is to avoid issues with floating point arithmetic when merging datasets</span>
+            <span class="c1"># (we can end up trying to merge datasets where x coordinates differ by ~ 10^{-10}, creating nonsense)</span>
+
+            <span class="c1"># Create empty datasets spanning entire domain for each component</span>
+            <span class="k">for</span> <span class="n">comp_name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">comp_names</span><span class="p">:</span>
+                <span class="n">extended_coords</span> <span class="o">=</span> <span class="n">coords</span>
+                <span class="n">extended_coords</span><span class="p">[</span><span class="s2">&quot;level&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">level</span><span class="p">)</span>
+                <span class="n">dims</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">INDEX_COORDS_NAMES</span><span class="p">[:</span> <span class="bp">self</span><span class="o">.</span><span class="n">space_dim</span><span class="p">]</span>
+                <span class="c1"># dims = dims[::-1]  # reverse list so we have k, j, i etc</span>
+                <span class="n">ds_dom_box</span><span class="p">[</span><span class="n">comp_name</span><span class="p">]</span> <span class="o">=</span> <span class="n">xr</span><span class="o">.</span><span class="n">DataArray</span><span class="p">(</span>
+                    <span class="n">blank_data</span><span class="p">,</span> <span class="n">dims</span><span class="o">=</span><span class="n">dims</span><span class="p">,</span> <span class="n">coords</span><span class="o">=</span><span class="n">extended_coords</span>  <span class="c1"># dims=[&#39;j&#39;, &#39;i&#39;],</span>
+                <span class="p">)</span>
+
+            <span class="n">ds_boxes</span> <span class="o">=</span> <span class="p">[</span><span class="n">ds_dom_box</span><span class="p">]</span>
+
+            <span class="c1"># Get level outlines</span>
+            <span class="n">polygons</span> <span class="o">=</span> <span class="p">[]</span>
+            <span class="k">for</span> <span class="n">box</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">levels</span><span class="p">[</span><span class="n">level</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">BOXES</span><span class="p">]:</span>
+                <span class="n">lo_indices</span><span class="p">,</span> <span class="n">hi_indices</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_indices</span><span class="p">(</span><span class="n">box</span><span class="p">)</span>
+
+                <span class="c1"># 0.5 because cell centred</span>
+                <span class="n">lo_vals</span> <span class="o">=</span> <span class="p">[</span><span class="n">lev_dx</span> <span class="o">*</span> <span class="p">(</span><span class="mf">0.5</span> <span class="o">+</span> <span class="n">i</span><span class="p">)</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">lo_indices</span><span class="p">]</span>
+                <span class="n">hi_vals</span> <span class="o">=</span> <span class="p">[</span><span class="n">lev_dx</span> <span class="o">*</span> <span class="p">(</span><span class="mf">0.5</span> <span class="o">+</span> <span class="n">i</span><span class="p">)</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">hi_indices</span><span class="p">]</span>
+
+                <span class="n">end_points</span> <span class="o">=</span> <span class="p">[</span>
+                    <span class="p">[</span><span class="n">lo_vals</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">-</span> <span class="n">lev_dx</span> <span class="o">/</span> <span class="mi">2</span><span class="p">,</span> <span class="n">hi_vals</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">+</span> <span class="n">lev_dx</span> <span class="o">/</span> <span class="mi">2</span><span class="p">]</span>
+                    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">space_dim</span><span class="p">)</span>
+                <span class="p">]</span>
+
+                <span class="c1"># For plotting level outlines</span>
+
+                <span class="c1"># Construct vertices in n dimensions</span>
+                <span class="n">polygon_vertices_auto</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">product</span><span class="p">(</span><span class="o">*</span><span class="n">end_points</span><span class="p">))</span>
+                <span class="n">polygon_vertices_auto</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span>
+                    <span class="n">polygon_vertices_auto</span><span class="p">,</span>
+                    <span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">x</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">arctan</span><span class="p">(</span><span class="n">x</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">/</span> <span class="nb">max</span><span class="p">(</span><span class="nb">abs</span><span class="p">(</span><span class="n">x</span><span class="p">[</span><span class="mi">0</span><span class="p">]),</span> <span class="mf">0.0001</span><span class="p">)),</span>
+                <span class="p">)</span>
+
+                <span class="n">poly</span> <span class="o">=</span> <span class="n">Polygon</span><span class="p">(</span><span class="n">polygon_vertices_auto</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">poly</span><span class="o">.</span><span class="n">is_valid</span><span class="p">:</span>
+                    <span class="n">polygons</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">poly</span><span class="p">)</span>
+
+            <span class="n">level_outline</span> <span class="o">=</span> <span class="n">gpd</span><span class="o">.</span><span class="n">GeoSeries</span><span class="p">(</span><span class="n">cascaded_union</span><span class="p">(</span><span class="n">polygons</span><span class="p">))</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">level_outlines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">level_outline</span><span class="p">)</span>
+
+            <span class="c1"># Data is sorted by box and by component, so need to know total number of components</span>
+            <span class="n">num_comps</span> <span class="o">=</span> <span class="mi">0</span>
+            <span class="k">for</span> <span class="n">comp_name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">keys</span><span class="p">():</span>
+                <span class="n">num_comps</span> <span class="o">=</span> <span class="n">num_comps</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">data</span><span class="p">[</span><span class="n">comp_name</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">NUM_COMPS</span><span class="p">]</span>
+
+            <span class="c1"># Now get the  data for each field, on each level</span>
+
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">is_plot_file</span><span class="p">:</span>
+
+                <span class="c1"># For plt files, data is sorted by box then by component</span>
+
+                <span class="n">data</span> <span class="o">=</span> <span class="n">level_group</span><span class="p">[</span><span class="s2">&quot;data:datatype=0&quot;</span><span class="p">]</span>
+
+                <span class="n">data_unshaped</span> <span class="o">=</span> <span class="n">data</span><span class="p">[()]</span>
+
+                <span class="n">offset</span> <span class="o">=</span> <span class="mi">0</span>
+
+                <span class="k">for</span> <span class="n">box</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">levels</span><span class="p">[</span><span class="n">level</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">BOXES</span><span class="p">]:</span>
+                    <span class="n">lo_indices</span> <span class="o">=</span> <span class="p">[</span><span class="n">box</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">space_dim</span><span class="p">)]</span>
+                    <span class="n">hi_indices</span> <span class="o">=</span> <span class="p">[</span>
+                        <span class="n">box</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">space_dim</span><span class="p">,</span> <span class="mi">2</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">space_dim</span><span class="p">)</span>
+                    <span class="p">]</span>
+
+                    <span class="n">n_cells_dir</span> <span class="o">=</span> <span class="p">[</span>
+                        <span class="n">hi_indices</span><span class="p">[</span><span class="n">d</span><span class="p">]</span> <span class="o">+</span> <span class="mi">1</span> <span class="o">-</span> <span class="n">lo_indices</span><span class="p">[</span><span class="n">d</span><span class="p">]</span> <span class="k">for</span> <span class="n">d</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">space_dim</span><span class="p">)</span>
+                    <span class="p">]</span>
+
+                    <span class="n">num_box_cells</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">prod</span><span class="p">(</span>
+                        <span class="n">n_cells_dir</span>
+                    <span class="p">)</span>  <span class="c1"># effectively nx * ny * nz * ...</span>
+                    <span class="n">num_cells</span> <span class="o">=</span> <span class="p">(</span>
+                        <span class="n">num_box_cells</span> <span class="o">*</span> <span class="n">num_comps</span>
+                    <span class="p">)</span>  <span class="c1"># also multiply by number of components</span>
+
+                    <span class="c1"># Now split into individual components</span>
+                    <span class="c1"># data contains all fields on this level, sort into individual fields</span>
+                    <span class="n">comp_offset_start</span> <span class="o">=</span> <span class="mi">0</span>
+
+                    <span class="n">coords</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_coordinates</span><span class="p">(</span><span class="n">lo_indices</span><span class="p">,</span> <span class="n">hi_indices</span><span class="p">)</span>
+
+                    <span class="c1"># Blank dataset for this box, which each component will be added to</span>
+                    <span class="n">ds_box</span> <span class="o">=</span> <span class="n">xr</span><span class="o">.</span><span class="n">Dataset</span><span class="p">({},</span> <span class="n">coords</span><span class="o">=</span><span class="n">coords</span><span class="p">)</span>
+
+                    <span class="k">for</span> <span class="n">comp_name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">comp_names</span><span class="p">:</span>
+                        <span class="c1"># LOGGER.info(&#39;Num cells in a box: &#39; + str(num_box_cells))</span>
+                        <span class="n">comp_offset_finish</span> <span class="o">=</span> <span class="n">comp_offset_start</span> <span class="o">+</span> <span class="n">num_box_cells</span>
+
+                        <span class="n">indices</span> <span class="o">=</span> <span class="p">[</span>
+                            <span class="n">offset</span> <span class="o">+</span> <span class="n">comp_offset_start</span><span class="p">,</span>
+                            <span class="n">offset</span> <span class="o">+</span> <span class="n">comp_offset_finish</span><span class="p">,</span>
+                        <span class="p">]</span>
+
+                        <span class="n">comp_offset_start</span> <span class="o">=</span> <span class="n">comp_offset_finish</span>
+
+                        <span class="n">ds_box</span><span class="p">[</span><span class="n">comp_name</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_box_comp_data</span><span class="p">(</span>
+                            <span class="n">data_unshaped</span><span class="p">,</span>
+                            <span class="n">level</span><span class="p">,</span>
+                            <span class="n">indices</span><span class="p">,</span>
+                            <span class="n">comp_name</span><span class="p">,</span>
+                            <span class="n">n_cells_dir</span><span class="p">,</span>
+                            <span class="n">coords</span><span class="p">,</span>
+                        <span class="p">)</span>
+
+                    <span class="c1"># Move onto next box</span>
+                    <span class="n">offset</span> <span class="o">=</span> <span class="n">offset</span> <span class="o">+</span> <span class="n">num_cells</span>
+
+                    <span class="n">ds_boxes</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">ds_box</span><span class="p">)</span>
+
+            <span class="k">else</span><span class="p">:</span>
+
+                <span class="c1"># For chk files, data is sorted by component then by box</span>
+                <span class="c1"># Loop over components and get data for that component from each box</span>
+
+                <span class="n">box_offset_scalar</span> <span class="o">=</span> <span class="mi">0</span>
+
+                <span class="c1"># num_boxes = len(self.levels[level][self.BOXES])</span>
+                <span class="k">for</span> <span class="n">box</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">levels</span><span class="p">[</span><span class="n">level</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">BOXES</span><span class="p">]:</span>
+                    <span class="n">lo_indices</span><span class="p">,</span> <span class="n">hi_indices</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_indices</span><span class="p">(</span><span class="n">box</span><span class="p">)</span>
+
+                    <span class="n">n_cells_dir</span> <span class="o">=</span> <span class="p">[</span>
+                        <span class="n">hi_indices</span><span class="p">[</span><span class="n">d</span><span class="p">]</span> <span class="o">+</span> <span class="mi">1</span> <span class="o">-</span> <span class="n">lo_indices</span><span class="p">[</span><span class="n">d</span><span class="p">]</span> <span class="k">for</span> <span class="n">d</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">space_dim</span><span class="p">)</span>
+                    <span class="p">]</span>
+
+                    <span class="n">num_box_cells</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">prod</span><span class="p">(</span>
+                        <span class="n">n_cells_dir</span>
+                    <span class="p">)</span>  <span class="c1"># effectively nx * ny * nz * ...</span>
+
+                    <span class="c1"># Now split into individual components</span>
+                    <span class="c1"># data contains all fields on this level, sort into individual fields</span>
+
+                    <span class="n">coords</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_coordinates</span><span class="p">(</span><span class="n">lo_indices</span><span class="p">,</span> <span class="n">hi_indices</span><span class="p">)</span>
+
+                    <span class="c1"># Blank dataset for this box, which each component will be added to</span>
+                    <span class="n">ds_box</span> <span class="o">=</span> <span class="n">xr</span><span class="o">.</span><span class="n">Dataset</span><span class="p">({},</span> <span class="n">coords</span><span class="o">=</span><span class="n">coords</span><span class="p">)</span>
+
+                    <span class="k">for</span> <span class="n">comp_name</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">comp_names</span><span class="p">:</span>
+                        <span class="n">component</span> <span class="o">=</span> <span class="mi">0</span>
+
+                        <span class="c1"># Need to get data differently if this is a vector</span>
+                        <span class="n">is_vector</span> <span class="o">=</span> <span class="p">(</span>
+                            <span class="n">comp_name</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;x&quot;</span>
+                            <span class="ow">or</span> <span class="n">comp_name</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;y&quot;</span>
+                            <span class="ow">or</span> <span class="n">comp_name</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;z&quot;</span>
+                            <span class="ow">and</span> <span class="nb">sum</span><span class="p">([</span><span class="n">comp_name</span><span class="p">[</span><span class="mi">1</span><span class="p">:]</span> <span class="ow">in</span> <span class="n">x</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">comp_names</span><span class="p">])</span>
+                            <span class="o">==</span> <span class="bp">self</span><span class="o">.</span><span class="n">space_dim</span>
+                        <span class="p">)</span>
+                        <span class="k">if</span> <span class="n">is_vector</span><span class="p">:</span>
+                            <span class="k">if</span> <span class="n">comp_name</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;x&quot;</span><span class="p">:</span>
+                                <span class="n">component</span> <span class="o">=</span> <span class="mi">0</span>
+
+                            <span class="k">elif</span> <span class="n">comp_name</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;y&quot;</span><span class="p">:</span>
+                                <span class="n">component</span> <span class="o">=</span> <span class="mi">1</span>
+                            <span class="k">elif</span> <span class="n">comp_name</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;z&quot;</span><span class="p">:</span>
+                                <span class="n">component</span> <span class="o">=</span> <span class="mi">2</span>
+
+                            <span class="c1"># Hardwired to 2D for now</span>
+                            <span class="n">num_comps</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">space_dim</span>
+
+                            <span class="c1"># This is the data for this component in all boxes</span>
+                            <span class="n">data</span> <span class="o">=</span> <span class="n">level_group</span><span class="p">[</span><span class="n">comp_name</span><span class="p">[</span><span class="mi">1</span><span class="p">:]</span> <span class="o">+</span> <span class="s2">&quot;:datatype=0&quot;</span><span class="p">]</span>
+                        <span class="k">else</span><span class="p">:</span>
+                            <span class="n">data</span> <span class="o">=</span> <span class="n">level_group</span><span class="p">[</span><span class="n">comp_name</span> <span class="o">+</span> <span class="s2">&quot;:datatype=0&quot;</span><span class="p">]</span>
+                            <span class="n">component</span> <span class="o">=</span> <span class="mi">0</span>
+
+                            <span class="n">num_comps</span> <span class="o">=</span> <span class="mi">1</span>
+
+                        <span class="n">data_unshaped</span> <span class="o">=</span> <span class="n">data</span><span class="p">[()]</span>
+
+                        <span class="n">component_offset</span> <span class="o">=</span> <span class="mi">0</span>  <span class="c1"># this is just 0 because we only get data for this component</span>
+
+                        <span class="c1"># For vectors, we may have an offset?</span>
+                        <span class="k">if</span> <span class="n">num_comps</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
+                            <span class="n">component_offset</span> <span class="o">=</span> <span class="n">component</span> <span class="o">*</span> <span class="n">num_box_cells</span>
+
+                        <span class="c1"># start_index = component_offset + box_offset</span>
+                        <span class="n">start_index</span> <span class="o">=</span> <span class="n">box_offset_scalar</span> <span class="o">*</span> <span class="n">num_comps</span> <span class="o">+</span> <span class="n">component_offset</span>
+                        <span class="n">end_index</span> <span class="o">=</span> <span class="n">start_index</span> <span class="o">+</span> <span class="n">num_box_cells</span>
+
+                        <span class="n">indices</span> <span class="o">=</span> <span class="p">[</span><span class="n">start_index</span><span class="p">,</span> <span class="n">end_index</span><span class="p">]</span>
+
+                        <span class="c1"># comp_offset_start = comp_offset_finish</span>
+
+                        <span class="n">ds_box</span><span class="p">[</span><span class="n">comp_name</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_box_comp_data</span><span class="p">(</span>
+                            <span class="n">data_unshaped</span><span class="p">,</span>
+                            <span class="n">level</span><span class="p">,</span>
+                            <span class="n">indices</span><span class="p">,</span>
+                            <span class="n">comp_name</span><span class="p">,</span>
+                            <span class="n">n_cells_dir</span><span class="p">,</span>
+                            <span class="n">coords</span><span class="p">,</span>
+                        <span class="p">)</span>
+
+                    <span class="c1"># Move onto next box</span>
+                    <span class="n">box_offset_scalar</span> <span class="o">=</span> <span class="n">box_offset_scalar</span> <span class="o">+</span> <span class="n">num_box_cells</span>
+
+                    <span class="n">ds_boxes</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">ds_box</span><span class="p">)</span>
+
+            <span class="c1"># Update will replace in place</span>
+            <span class="n">first_box</span> <span class="o">=</span> <span class="mi">1</span>
+            <span class="n">ds_level</span> <span class="o">=</span> <span class="n">ds_boxes</span><span class="p">[</span><span class="n">first_box</span><span class="p">]</span>
+            <span class="k">for</span> <span class="n">b</span> <span class="ow">in</span> <span class="n">ds_boxes</span><span class="p">[</span><span class="n">first_box</span> <span class="o">+</span> <span class="mi">1</span> <span class="p">:]:</span>
+                <span class="n">ds_level</span> <span class="o">=</span> <span class="n">ds_level</span><span class="o">.</span><span class="n">combine_first</span><span class="p">(</span><span class="n">b</span><span class="p">)</span>
+
+            <span class="c1"># Create x,y,z, coordinates</span>
+            <span class="n">x_y_coords_names</span> <span class="o">=</span> <span class="p">[</span><span class="s2">&quot;x&quot;</span><span class="p">,</span> <span class="s2">&quot;y&quot;</span><span class="p">,</span> <span class="s2">&quot;z&quot;</span><span class="p">]</span>
+
+            <span class="k">for</span> <span class="n">d</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">space_dim</span><span class="p">):</span>
+                <span class="c1"># Factor of 0.5 accounts for cell centering</span>
+                <span class="n">ds_level</span><span class="o">.</span><span class="n">coords</span><span class="p">[</span><span class="n">x_y_coords_names</span><span class="p">[</span><span class="n">d</span><span class="p">]]</span> <span class="o">=</span> <span class="p">(</span>
+                    <span class="n">ds_level</span><span class="o">.</span><span class="n">coords</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">INDEX_COORDS_NAMES</span><span class="p">[</span><span class="n">d</span><span class="p">]]</span> <span class="o">+</span> <span class="mf">0.5</span>
+                <span class="p">)</span> <span class="o">*</span> <span class="n">lev_dx</span>
+
+            <span class="k">if</span> <span class="n">zero_x</span><span class="p">:</span>
+                <span class="n">ds_level</span><span class="o">.</span><span class="n">coords</span><span class="p">[</span><span class="s2">&quot;x&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">ds_level</span><span class="o">.</span><span class="n">coords</span><span class="p">[</span><span class="s2">&quot;x&quot;</span><span class="p">]</span> <span class="o">-</span> <span class="nb">min</span><span class="p">(</span><span class="n">ds_level</span><span class="o">.</span><span class="n">coords</span><span class="p">[</span><span class="s2">&quot;x&quot;</span><span class="p">])</span>
+
+            <span class="c1"># Swap i,j,k to x,y,z coordinates</span>
+            <span class="k">for</span> <span class="n">d</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">space_dim</span><span class="p">):</span>
+                <span class="n">ds_level</span> <span class="o">=</span> <span class="n">ds_level</span><span class="o">.</span><span class="n">swap_dims</span><span class="p">(</span>
+                    <span class="p">{</span><span class="bp">self</span><span class="o">.</span><span class="n">INDEX_COORDS_NAMES</span><span class="p">[</span><span class="n">d</span><span class="p">]:</span> <span class="n">x_y_coords_names</span><span class="p">[</span><span class="n">d</span><span class="p">]}</span>
+                <span class="p">)</span>
+
+            <span class="c1"># TODO: should level be an attribute or co-ordinate? need to try with actual AMR data</span>
+            <span class="n">ds_level</span><span class="o">.</span><span class="n">attrs</span><span class="p">[</span><span class="s2">&quot;level&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">level</span>
+
+            <span class="n">ds_levels</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">ds_level</span><span class="p">)</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">ds_levels</span> <span class="o">=</span> <span class="n">ds_levels</span>
+
+        <span class="n">h5_file</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+
+        <span class="bp">self</span><span class="o">.</span><span class="n">data_loaded</span> <span class="o">=</span> <span class="kc">True</span></div>
+
+<div class="viewcode-block" id="PltFile.get_coordinates"><a class="viewcode-back" href="../../plotting-ref.html#chombopy.plotting.PltFile.get_coordinates">[docs]</a>    <span class="k">def</span> <span class="nf">get_coordinates</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">lo</span><span class="p">,</span> <span class="n">hi</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+
+<span class="sd">        Get coordinates in index space given the low and high box limits</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        lo : tuple</span>
+<span class="sd">            Lower limits of the domain in each dimension e.g. (0, 0).</span>
+<span class="sd">        hi : tuple</span>
+<span class="sd">            Upper limits of the domain in each dimension e.g. (5, 5).</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        dict</span>
+<span class="sd">            coordinates (in index space) in each dimension</span>
+<span class="sd">            e.g. {&#39;i&#39;: numpy.array([0,1,2,3,4,5]), &#39;j&#39;: numpy.array([0,1,2,3,4])}</span>
+
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">coordinates</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">for</span> <span class="n">d</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">space_dim</span><span class="p">):</span>
+            <span class="n">coords_dir</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">lo</span><span class="p">[</span><span class="n">d</span><span class="p">],</span> <span class="n">hi</span><span class="p">[</span><span class="n">d</span><span class="p">]</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span>
+            <span class="n">coordinates</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">INDEX_COORDS_NAMES</span><span class="p">[</span><span class="n">d</span><span class="p">]]</span> <span class="o">=</span> <span class="n">coords_dir</span>
+
+        <span class="k">return</span> <span class="n">coordinates</span></div>
+
+<div class="viewcode-block" id="PltFile.get_box_comp_data"><a class="viewcode-back" href="../../plotting-ref.html#chombopy.plotting.PltFile.get_box_comp_data">[docs]</a>    <span class="k">def</span> <span class="nf">get_box_comp_data</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span> <span class="n">data_unshaped</span><span class="p">,</span> <span class="n">level</span><span class="p">,</span> <span class="n">indices</span><span class="p">,</span> <span class="n">comp_name</span><span class="p">,</span> <span class="n">n_cells_dir</span><span class="p">,</span> <span class="n">coords</span>
+    <span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+
+<span class="sd">        Parse a list of data values from a Chombo HDF5 file into structured data</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        data_unshaped : list</span>
+<span class="sd">            1D list of data values</span>
+<span class="sd">        level : int</span>
+<span class="sd">            Level of refinement data is from</span>
+<span class="sd">        indices : tuple</span>
+<span class="sd">            Upper and lower limits to sample from `data_unshaped`</span>
+<span class="sd">        comp_name : str</span>
+<span class="sd">            Name of the field this data represents</span>
+<span class="sd">        n_cells_dir : tuple</span>
+<span class="sd">            Number of cells in each spatial dimension i.e. (Nx, Ny, Nz)</span>
+<span class="sd">        coords : dict</span>
+<span class="sd">            Coordinates in each spatial dimension,</span>
+<span class="sd">            e.g. {&#39;i&#39;: [0,1,2,3], &#39;j&#39;: [0,1,2,3]}</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        xarray.DataArray</span>
+<span class="sd">            Structured data</span>
+
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">data_box_comp</span> <span class="o">=</span> <span class="n">data_unshaped</span><span class="p">[</span><span class="n">indices</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="p">:</span> <span class="n">indices</span><span class="p">[</span><span class="mi">1</span><span class="p">]]</span>
+
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">data_box_comp</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">LOGGER</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;ERROR - no data in box&quot;</span><span class="p">)</span>
+
+        <span class="c1"># Chombo data is indexed in reverse (i.e. data[k, j, i]), so whilst we have n_cells_dir = [Nx, Ny, Nz],</span>
+        <span class="c1"># we need to reshape according to [Nz, Ny, Nx] before then transposing to get</span>
+        <span class="c1"># an array which is indexed as data[i, j, k]</span>
+        <span class="c1"># reshaped_data = data_box_comp.reshape(tuple(n_cells_dir))</span>
+        <span class="n">reshaped_data</span> <span class="o">=</span> <span class="n">data_box_comp</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="nb">tuple</span><span class="p">(</span><span class="n">n_cells_dir</span><span class="p">[::</span><span class="o">-</span><span class="mi">1</span><span class="p">]))</span>
+        <span class="n">reshaped_data</span> <span class="o">=</span> <span class="n">reshaped_data</span><span class="o">.</span><span class="n">transpose</span><span class="p">()</span>
+
+        <span class="c1"># I think we only need to transpose in 3D</span>
+        <span class="c1"># if self.space_dim == 3: #  or self.space_dim == 2</span>
+        <span class="c1">#     reshaped_data = reshaped_data.transpose()</span>
+        <span class="n">reshaped_data</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">reshaped_data</span><span class="p">)</span>
+
+        <span class="c1"># Check if scalar or vector</span>
+        <span class="n">trimmed_comp_names</span> <span class="o">=</span> <span class="p">[</span><span class="n">n</span><span class="p">[</span><span class="mi">1</span><span class="p">:]</span> <span class="k">for</span> <span class="n">n</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">comp_names</span><span class="p">]</span>
+        <span class="n">field_type</span> <span class="o">=</span> <span class="s2">&quot;scalar&quot;</span>
+        <span class="k">if</span> <span class="n">comp_name</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">&quot;x&quot;</span><span class="p">,</span> <span class="s2">&quot;y&quot;</span><span class="p">,</span> <span class="s2">&quot;z&quot;</span><span class="p">)</span> <span class="ow">and</span> <span class="n">comp_name</span><span class="p">[</span><span class="mi">1</span><span class="p">:]</span> <span class="ow">in</span> <span class="n">trimmed_comp_names</span><span class="p">:</span>
+            <span class="n">field_type</span> <span class="o">=</span> <span class="s2">&quot;vector&quot;</span>
+
+        <span class="n">dim_list</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">INDEX_COORDS_NAMES</span><span class="p">[:</span> <span class="bp">self</span><span class="o">.</span><span class="n">space_dim</span><span class="p">]</span>
+        <span class="n">extended_coords</span> <span class="o">=</span> <span class="n">coords</span>
+        <span class="n">extended_coords</span><span class="p">[</span><span class="s2">&quot;level&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">level</span>
+
+        <span class="c1"># It&#39;s really unclear when we do and don&#39;t need to transpose</span>
+        <span class="c1"># reshaped_data = reshaped_data.transpose()</span>
+        <span class="c1"># dim_list = dim_list[::-1]</span>
+
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">reshaped_data</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="nb">len</span><span class="p">(</span><span class="n">extended_coords</span><span class="p">[</span><span class="n">dim_list</span><span class="p">[</span><span class="mi">0</span><span class="p">]]):</span>
+            <span class="n">reshaped_data</span> <span class="o">=</span> <span class="n">reshaped_data</span><span class="o">.</span><span class="n">transpose</span><span class="p">()</span>
+            <span class="c1"># dim_list = dim_list[::-1]</span>
+
+        <span class="n">xarr_component_box</span> <span class="o">=</span> <span class="n">xr</span><span class="o">.</span><span class="n">DataArray</span><span class="p">(</span>
+            <span class="n">reshaped_data</span><span class="p">,</span>
+            <span class="n">dims</span><span class="o">=</span><span class="n">dim_list</span><span class="p">,</span>  <span class="c1"># [&#39;j&#39;, &#39;i&#39;],</span>
+            <span class="n">coords</span><span class="o">=</span><span class="n">extended_coords</span><span class="p">,</span>  <span class="c1"># {&#39;i&#39;: i_box, &#39;j&#39;: j_box, &#39;level&#39;: level},</span>
+            <span class="n">attrs</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;field_type&quot;</span><span class="p">:</span> <span class="n">field_type</span><span class="p">},</span>
+        <span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">xarr_component_box</span></div>
+
+<div class="viewcode-block" id="PltFile.get_indices"><a class="viewcode-back" href="../../plotting-ref.html#chombopy.plotting.PltFile.get_indices">[docs]</a>    <span class="k">def</span> <span class="nf">get_indices</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">box</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+
+<span class="sd">        Parse box extents from Chombo HDF5 files into low and high limits</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        box : list</span>
+<span class="sd">            Chombo HDF5 format box limits,</span>
+<span class="sd">            e.g. [x_lo, y_lo, x_hi, y_hi] = [0,0,1,1]</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        lo, hi : list</span>
+<span class="sd">            Low and high limits, [x_lo, y_lo, ...], [x_hi, y_hi, ...]</span>
+<span class="sd">            e.g [0,0], [1,1]</span>
+
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">lo</span> <span class="o">=</span> <span class="p">[</span><span class="n">box</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">space_dim</span><span class="p">)]</span>
+        <span class="n">hi</span> <span class="o">=</span> <span class="p">[</span><span class="n">box</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">space_dim</span><span class="p">,</span> <span class="mi">2</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">space_dim</span><span class="p">)]</span>
+        <span class="k">return</span> <span class="n">lo</span><span class="p">,</span> <span class="n">hi</span></div>
+
+<div class="viewcode-block" id="PltFile.get_level_data"><a class="viewcode-back" href="../../plotting-ref.html#chombopy.plotting.PltFile.get_level_data">[docs]</a>    <span class="k">def</span> <span class="nf">get_level_data</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">field</span><span class="p">,</span> <span class="n">level</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">valid_only</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get data for some field on a particular level of refinement.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        field : str</span>
+<span class="sd">            The field/component name to get data for</span>
+<span class="sd">        level : int</span>
+<span class="sd">            The level of refinement to get data on</span>
+<span class="sd">        valid_only : bool</span>
+<span class="sd">            Whether to set covered (not valid) regions to NaN. Covered regions are those</span>
+<span class="sd">            which are covered by finer levels.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        xarray.DataArray</span>
+<span class="sd">            Data for the specified field on the given level.</span>
+
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">comp_names</span><span class="p">)</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">LOGGER</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
+                <span class="s2">&quot;No data loaded, perhaps you meant to call PltFile.load_data() first? &quot;</span>
+            <span class="p">)</span>
+
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">data_loaded</span><span class="p">:</span>
+            <span class="n">LOGGER</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Data not loaded&quot;</span><span class="p">)</span>
+            <span class="k">return</span>
+
+        <span class="n">available_comps</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">ds_levels</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span>
+
+        <span class="k">if</span> <span class="n">field</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">available_comps</span><span class="p">:</span>
+            <span class="n">LOGGER</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="s2">&quot;Field: </span><span class="si">%s</span><span class="s2"> not found. The following fields do exist: &quot;</span> <span class="o">%</span> <span class="n">field</span><span class="p">)</span>
+            <span class="c1"># LOGGER.info(self.data.keys())</span>
+            <span class="n">LOGGER</span><span class="o">.</span><span class="n">info</span><span class="p">(</span><span class="n">available_comps</span><span class="p">)</span>
+            <span class="k">return</span>
+
+        <span class="n">ds_lev</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">ds_levels</span><span class="p">[</span><span class="n">level</span><span class="p">]</span>
+
+        <span class="n">ld</span> <span class="o">=</span> <span class="n">ds_lev</span><span class="p">[</span><span class="n">field</span><span class="p">]</span>
+
+        <span class="c1"># Set covered cells to NaN</span>
+        <span class="c1"># This is really slow, I&#39;m sure there&#39;s a faster way</span>
+        <span class="k">if</span> <span class="n">valid_only</span> <span class="ow">and</span> <span class="n">level</span> <span class="o">&lt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">num_levels</span> <span class="o">-</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="n">coarseness</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">levels</span><span class="p">[</span><span class="n">level</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">REF_RATIO</span><span class="p">]</span>
+            <span class="n">fine_level</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">ds_levels</span><span class="p">[</span><span class="n">level</span> <span class="o">+</span> <span class="mi">1</span><span class="p">][</span><span class="n">field</span><span class="p">])</span>
+            <span class="n">temp</span> <span class="o">=</span> <span class="n">fine_level</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span>
+                <span class="p">(</span>
+                    <span class="n">fine_level</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">//</span> <span class="n">coarseness</span><span class="p">,</span>
+                    <span class="n">coarseness</span><span class="p">,</span>
+                    <span class="n">fine_level</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">//</span> <span class="n">coarseness</span><span class="p">,</span>
+                    <span class="n">coarseness</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="p">)</span>
+            <span class="n">coarse_fine</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">temp</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">3</span><span class="p">))</span>
+
+            <span class="n">isnan</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">isnan</span><span class="p">(</span><span class="n">coarse_fine</span><span class="p">)</span>
+            <span class="c1"># ld = ld.where(isnan == True)</span>
+            <span class="n">ld</span> <span class="o">=</span> <span class="n">ld</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">isnan</span><span class="p">)</span>
+
+        <span class="c1"># By default, swap to python indexing</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">python_index_ordering</span><span class="p">:</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">space_dim</span> <span class="o">==</span> <span class="mi">3</span><span class="p">:</span>
+                <span class="n">ld</span> <span class="o">=</span> <span class="n">ld</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="s2">&quot;z&quot;</span><span class="p">,</span> <span class="s2">&quot;y&quot;</span><span class="p">,</span> <span class="s2">&quot;x&quot;</span><span class="p">)</span>
+            <span class="k">elif</span> <span class="bp">self</span><span class="o">.</span><span class="n">space_dim</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
+                <span class="n">ld</span> <span class="o">=</span> <span class="n">ld</span><span class="o">.</span><span class="n">transpose</span><span class="p">(</span><span class="s2">&quot;y&quot;</span><span class="p">,</span> <span class="s2">&quot;x&quot;</span><span class="p">)</span>
+
+        <span class="n">ld</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">scale_slice_transform</span><span class="p">(</span><span class="n">ld</span><span class="p">)</span>
+
+        <span class="c1"># If this is the x-component of a vector, and we&#39;re reflecting, we need to also make the field negative</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">reflect</span><span class="p">:</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">should_negate_field_upon_reflection</span><span class="p">(</span><span class="n">field</span><span class="p">):</span>
+                <span class="n">ld</span> <span class="o">=</span> <span class="o">-</span><span class="n">ld</span>
+
+        <span class="k">return</span> <span class="n">ld</span></div>
+
+
+<div class="viewcode-block" id="PltFile.get_mesh_grid_n"><a class="viewcode-back" href="../../plotting-ref.html#chombopy.plotting.PltFile.get_mesh_grid_n">[docs]</a>    <span class="nd">@staticmethod</span>
+    <span class="k">def</span> <span class="nf">get_mesh_grid_n</span><span class="p">(</span><span class="n">arr</span><span class="p">,</span> <span class="n">grow</span><span class="o">=</span><span class="mi">0</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        arr : xarray.DataArray</span>
+<span class="sd">            Data Array for some field, which must contain coordinates</span>
+<span class="sd">        grow : int</span>
+<span class="sd">            Number of grid cells to extend grid by in each dimension</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        x, y : numpy.array</span>
+<span class="sd">            coordinates in x and y directions</span>
+
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">x</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">arr</span><span class="o">.</span><span class="n">coords</span><span class="p">[</span><span class="s2">&quot;x&quot;</span><span class="p">])</span>
+        <span class="n">y</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">arr</span><span class="o">.</span><span class="n">coords</span><span class="p">[</span><span class="s2">&quot;y&quot;</span><span class="p">])</span>
+
+        <span class="n">x_min</span> <span class="o">=</span> <span class="n">x</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="n">x_max</span> <span class="o">=</span> <span class="n">x</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+        <span class="n">y_min</span> <span class="o">=</span> <span class="n">y</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="n">y_max</span> <span class="o">=</span> <span class="n">y</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+
+        <span class="n">nx</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="o">+</span> <span class="n">grow</span>
+        <span class="n">ny</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">y</span><span class="p">)</span> <span class="o">+</span> <span class="n">grow</span>
+
+        <span class="n">x</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="n">x_min</span><span class="p">,</span> <span class="n">x_max</span><span class="p">,</span> <span class="n">nx</span><span class="p">)</span>
+        <span class="n">y</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">linspace</span><span class="p">(</span><span class="n">y_min</span><span class="p">,</span> <span class="n">y_max</span><span class="p">,</span> <span class="n">ny</span><span class="p">)</span>
+
+        <span class="k">return</span> <span class="n">x</span><span class="p">,</span> <span class="n">y</span></div>
+
+
+
+<div class="viewcode-block" id="PltFile.get_rotate_dims"><a class="viewcode-back" href="../../plotting-ref.html#chombopy.plotting.PltFile.get_rotate_dims">[docs]</a>    <span class="k">def</span> <span class="nf">get_rotate_dims</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">rotate_dims</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Backward compatibility fix. Originally user had to ask to rotate dimensions to match</span>
+<span class="sd">        python indexing. We now do this by default.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        rotate_dims : bool</span>
+<span class="sd">            Whether to transpose the spatial dimensions.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        bool</span>
+<span class="sd">            Backwards compatible option for whether to transpose spatial dimensions.</span>
+
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">python_index_ordering</span><span class="p">:</span>
+            <span class="n">rotate_dims</span> <span class="o">=</span> <span class="ow">not</span> <span class="n">rotate_dims</span>
+
+        <span class="k">return</span> <span class="n">rotate_dims</span></div>
+
+<div class="viewcode-block" id="PltFile.get_mesh_grid_xarray"><a class="viewcode-back" href="../../plotting-ref.html#chombopy.plotting.PltFile.get_mesh_grid_xarray">[docs]</a>    <span class="nd">@staticmethod</span>
+    <span class="k">def</span> <span class="nf">get_mesh_grid_xarray</span><span class="p">(</span><span class="n">arr</span><span class="p">,</span> <span class="n">grow</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+
+<span class="sd">        Gets the coordinates for the given DataArray as numpy arrays</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        arr : xarray.DataArray</span>
+<span class="sd">            DataArray (including coordinates) to get coordinates for</span>
+<span class="sd">        grow : bool</span>
+<span class="sd">            Whether to grow the domain by :math:`\Delta x/2` in each direction to extend to the edges of the domain</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        x, y : numpy.array</span>
+<span class="sd">            Coordinates in x and y directions.</span>
+
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">x</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">arr</span><span class="o">.</span><span class="n">coords</span><span class="p">[</span><span class="s2">&quot;x&quot;</span><span class="p">])</span>
+        <span class="n">y</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">arr</span><span class="o">.</span><span class="n">coords</span><span class="p">[</span><span class="s2">&quot;y&quot;</span><span class="p">])</span>
+
+        <span class="n">dx</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">x</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">-</span> <span class="n">x</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+        <span class="n">dy</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="n">y</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">-</span> <span class="n">y</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+
+        <span class="k">if</span> <span class="n">grow</span><span class="p">:</span>
+            <span class="n">x</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="p">[</span><span class="nb">float</span><span class="p">(</span><span class="n">x</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span> <span class="o">+</span> <span class="n">dx</span><span class="p">])</span>
+            <span class="n">y</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">y</span><span class="p">,</span> <span class="p">[</span><span class="nb">float</span><span class="p">(</span><span class="n">y</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">])</span> <span class="o">+</span> <span class="n">dy</span><span class="p">])</span>
+
+            <span class="n">x</span> <span class="o">=</span> <span class="n">x</span> <span class="o">-</span> <span class="n">dx</span> <span class="o">/</span> <span class="mi">2</span>
+            <span class="n">y</span> <span class="o">=</span> <span class="n">y</span> <span class="o">-</span> <span class="n">dx</span> <span class="o">/</span> <span class="mi">2</span>
+
+        <span class="k">return</span> <span class="n">x</span><span class="p">,</span> <span class="n">y</span></div>
+
+<div class="viewcode-block" id="PltFile.get_mesh_grid"><a class="viewcode-back" href="../../plotting-ref.html#chombopy.plotting.PltFile.get_mesh_grid">[docs]</a>    <span class="k">def</span> <span class="nf">get_mesh_grid</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">rotate_dims</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">extend_grid</span><span class="o">=</span><span class="kc">True</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+
+<span class="sd">        Returns coordinate grids in each dimension</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        rotate_dims : bool, optional</span>
+<span class="sd">            Whether to transpose the grids</span>
+<span class="sd">        extend_grid : bool, optional</span>
+<span class="sd">            Whether to extend the grid by :math:`\Delta x/2` in each dimension to cover the domain edges,</span>
+<span class="sd">            rather than stopping at the center of the cells on the edge of the domain.</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        x, y, z : numpy.mgrid</span>
+<span class="sd">            Grid in each dimension</span>
+
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">rotate_dims</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_rotate_dims</span><span class="p">(</span><span class="n">rotate_dims</span><span class="p">)</span>
+
+        <span class="n">components</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span>
+
+        <span class="n">field</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_level_data</span><span class="p">(</span><span class="n">components</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+
+        <span class="n">field_array</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">field</span><span class="p">)</span>
+        <span class="n">grid_size</span> <span class="o">=</span> <span class="n">field_array</span><span class="o">.</span><span class="n">shape</span>
+
+        <span class="n">x_coords</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">field</span><span class="o">.</span><span class="n">coords</span><span class="p">[</span><span class="s2">&quot;x&quot;</span><span class="p">])</span>
+        <span class="n">y_coords</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">field</span><span class="o">.</span><span class="n">coords</span><span class="p">[</span><span class="s2">&quot;y&quot;</span><span class="p">])</span>
+
+        <span class="n">dx</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">x_coords</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">-</span> <span class="n">x_coords</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+
+        <span class="k">if</span> <span class="n">extend_grid</span><span class="p">:</span>
+            <span class="n">extend</span> <span class="o">=</span> <span class="n">dx</span> <span class="o">/</span> <span class="mi">2</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">extend</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="n">y</span><span class="p">,</span> <span class="n">x</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">mgrid</span><span class="p">[</span>
+            <span class="nb">slice</span><span class="p">(</span><span class="nb">min</span><span class="p">(</span><span class="n">x_coords</span><span class="p">)</span> <span class="o">-</span> <span class="n">extend</span><span class="p">,</span> <span class="nb">max</span><span class="p">(</span><span class="n">x_coords</span><span class="p">)</span> <span class="o">+</span> <span class="n">extend</span><span class="p">,</span> <span class="n">dx</span><span class="p">),</span>
+            <span class="nb">slice</span><span class="p">(</span><span class="nb">min</span><span class="p">(</span><span class="n">y_coords</span><span class="p">)</span> <span class="o">-</span> <span class="n">extend</span><span class="p">,</span> <span class="nb">max</span><span class="p">(</span><span class="n">y_coords</span><span class="p">)</span> <span class="o">+</span> <span class="n">extend</span><span class="p">,</span> <span class="n">dx</span><span class="p">),</span>
+        <span class="p">]</span>
+
+        <span class="n">coord_max</span> <span class="o">=</span> <span class="p">[(</span><span class="n">grid_size</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span> <span class="o">*</span> <span class="n">dx</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">space_dim</span><span class="p">)]</span>
+        <span class="n">grid_spacing</span> <span class="o">=</span> <span class="p">[</span><span class="n">coord_max</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">/</span> <span class="n">grid_size</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">space_dim</span><span class="p">)]</span>
+        <span class="n">grids</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">mgrid</span><span class="p">[</span>
+            <span class="p">[</span><span class="nb">slice</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">coord_max</span><span class="p">[</span><span class="n">i</span><span class="p">],</span> <span class="n">grid_spacing</span><span class="p">[</span><span class="n">i</span><span class="p">])</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">space_dim</span><span class="p">)]</span>
+        <span class="p">]</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">space_dim</span> <span class="o">==</span> <span class="mi">3</span><span class="p">:</span>
+            <span class="n">x</span> <span class="o">=</span> <span class="n">grids</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+            <span class="n">y</span> <span class="o">=</span> <span class="n">grids</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+            <span class="n">z</span> <span class="o">=</span> <span class="n">grids</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span>
+
+            <span class="k">if</span> <span class="n">rotate_dims</span><span class="p">:</span>
+                <span class="n">x</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">transpose</span><span class="p">()</span>
+                <span class="n">y</span> <span class="o">=</span> <span class="n">y</span><span class="o">.</span><span class="n">transpose</span><span class="p">()</span>
+                <span class="n">z</span> <span class="o">=</span> <span class="n">z</span><span class="o">.</span><span class="n">transpose</span><span class="p">()</span>
+
+            <span class="n">z</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">scale_slice_transform</span><span class="p">(</span><span class="n">z</span><span class="p">)</span>
+            <span class="n">x</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">scale_slice_transform</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">no_reflect</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+            <span class="n">y</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">scale_slice_transform</span><span class="p">(</span><span class="n">y</span><span class="p">,</span> <span class="n">no_reflect</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+            <span class="k">return</span> <span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">z</span>
+
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">rotate_dims</span><span class="p">:</span>
+                <span class="n">y_new</span> <span class="o">=</span> <span class="n">x</span><span class="o">.</span><span class="n">transpose</span><span class="p">()</span>
+                <span class="n">x_new</span> <span class="o">=</span> <span class="n">y</span><span class="o">.</span><span class="n">transpose</span><span class="p">()</span>
+
+                <span class="n">x</span> <span class="o">=</span> <span class="n">x_new</span>
+                <span class="n">y</span> <span class="o">=</span> <span class="n">y_new</span>
+
+            <span class="k">return</span> <span class="n">x</span><span class="p">,</span> <span class="n">y</span></div>
+
+<div class="viewcode-block" id="PltFile.get_data"><a class="viewcode-back" href="../../plotting-ref.html#chombopy.plotting.PltFile.get_data">[docs]</a>    <span class="k">def</span> <span class="nf">get_data</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">var_name</span><span class="p">,</span> <span class="n">rotate_dims</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+
+<span class="sd">        Get data for some field, added for legacy support</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        var_name : str</span>
+<span class="sd">            Field to get data for</span>
+<span class="sd">        rotate_dims : bool, optional</span>
+<span class="sd">            Whether to transpose the field to match expected alignment of axis</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        numpy.array</span>
+<span class="sd">            Data values for given field</span>
+
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">rotate_dims</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_rotate_dims</span><span class="p">(</span><span class="n">rotate_dims</span><span class="p">)</span>
+
+        <span class="n">data</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_level_data</span><span class="p">(</span><span class="n">var_name</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">data</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">None</span>
+
+        <span class="n">data</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+
+        <span class="k">if</span> <span class="n">rotate_dims</span><span class="p">:</span>
+            <span class="n">data</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">transpose</span><span class="p">()</span>
+
+        <span class="k">return</span> <span class="n">data</span></div>
+
+<div class="viewcode-block" id="PltFile.should_negate_field_upon_reflection"><a class="viewcode-back" href="../../plotting-ref.html#chombopy.plotting.PltFile.should_negate_field_upon_reflection">[docs]</a>    <span class="k">def</span> <span class="nf">should_negate_field_upon_reflection</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">field</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Override to change the sign of certain fields upon reflection given their name.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        field : str</span>
+<span class="sd">            Name of field</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        bool</span>
+<span class="sd">            Whether to change the sign of the field upon reflection</span>
+
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="kc">False</span></div>
+
+<div class="viewcode-block" id="PltFile.scale_slice_transform"><a class="viewcode-back" href="../../plotting-ref.html#chombopy.plotting.PltFile.scale_slice_transform">[docs]</a>    <span class="k">def</span> <span class="nf">scale_slice_transform</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">data</span><span class="p">,</span> <span class="n">no_reflect</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Perform transformations on the dataset.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        data : xarray.DataArray</span>
+<span class="sd">            data to be transformed</span>
+<span class="sd">        no_reflect : bool</span>
+<span class="sd">            Whether to override the pre-defined choices to reflect data or not in this transformation</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        xarray.DataArray</span>
+<span class="sd">            Transformed data</span>
+
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">indices</span><span class="p">:</span>
+            <span class="n">data</span> <span class="o">=</span> <span class="n">data</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">indices</span><span class="p">]</span>
+
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">reflect</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">no_reflect</span><span class="p">:</span>
+            <span class="c1"># flip will change both the data values and the x coordinate</span>
+            <span class="n">data</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">flip</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+
+            <span class="c1"># reset the x coordinate</span>
+            <span class="n">data</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">assign_coords</span><span class="p">(</span><span class="n">x</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">flip</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">coords</span><span class="p">[</span><span class="s2">&quot;x&quot;</span><span class="p">]))</span>
+
+        <span class="k">return</span> <span class="n">data</span></div>
+
+<div class="viewcode-block" id="PltFile.plot_field"><a class="viewcode-back" href="../../plotting-ref.html#chombopy.plotting.PltFile.plot_field">[docs]</a>    <span class="k">def</span> <span class="nf">plot_field</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">field</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Plot the field using matplotlib and some default options.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        field : str</span>
+<span class="sd">            Field name to plot</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">load_data</span><span class="p">()</span>
+
+        <span class="n">cmap</span> <span class="o">=</span> <span class="n">pyplot</span><span class="o">.</span><span class="n">get_cmap</span><span class="p">(</span><span class="s2">&quot;PiYG&quot;</span><span class="p">)</span>
+
+        <span class="n">ld</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_level_data</span><span class="p">(</span><span class="n">field</span><span class="p">,</span> <span class="mi">0</span><span class="p">)</span>
+        <span class="n">x</span><span class="p">,</span> <span class="n">y</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_mesh_grid</span><span class="p">()</span>
+        <span class="n">img</span> <span class="o">=</span> <span class="n">pyplot</span><span class="o">.</span><span class="n">pcolormesh</span><span class="p">(</span><span class="n">x</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span> <span class="n">ld</span><span class="p">,</span> <span class="n">cmap</span><span class="o">=</span><span class="n">cmap</span><span class="p">)</span>
+
+        <span class="c1"># make a color bar</span>
+        <span class="n">pyplot</span><span class="o">.</span><span class="n">colorbar</span><span class="p">(</span><span class="n">img</span><span class="p">,</span> <span class="n">cmap</span><span class="o">=</span><span class="n">cmap</span><span class="p">,</span> <span class="n">label</span><span class="o">=</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
+
+        <span class="n">pyplot</span><span class="o">.</span><span class="n">xlabel</span><span class="p">(</span><span class="s2">&quot;$x$&quot;</span><span class="p">)</span>
+        <span class="n">pyplot</span><span class="o">.</span><span class="n">xlabel</span><span class="p">(</span><span class="s2">&quot;$z$&quot;</span><span class="p">)</span></div>
+
+<div class="viewcode-block" id="PltFile.plot_outlines"><a class="viewcode-back" href="../../plotting-ref.html#chombopy.plotting.PltFile.plot_outlines">[docs]</a>    <span class="k">def</span> <span class="nf">plot_outlines</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ax</span><span class="p">,</span> <span class="n">colors</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+
+<span class="sd">        Plot all level outlines (except level 0)</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        ax : matplotlib.axes</span>
+<span class="sd">            Axes to plot onto</span>
+<span class="sd">        colors :  list, optional</span>
+<span class="sd">            List of colours to plot on each level, from which the relevant colour for the required level is sampled.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">for</span> <span class="n">level</span> <span class="ow">in</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">level_outlines</span><span class="p">)):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">plot_outline</span><span class="p">(</span><span class="n">ax</span><span class="p">,</span> <span class="n">level</span><span class="p">,</span> <span class="n">colors</span><span class="p">)</span></div>
+
+<div class="viewcode-block" id="PltFile.plot_outline"><a class="viewcode-back" href="../../plotting-ref.html#chombopy.plotting.PltFile.plot_outline">[docs]</a>    <span class="k">def</span> <span class="nf">plot_outline</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">ax</span><span class="p">,</span> <span class="n">level</span><span class="p">,</span> <span class="n">colors</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+
+<span class="sd">        Plot level outline for a particular color</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        ax : matplotlib.axes</span>
+<span class="sd">            Axes to plot onto</span>
+<span class="sd">        level : int</span>
+<span class="sd">            Level outline to plot</span>
+<span class="sd">        colors :  list, optional</span>
+<span class="sd">            List of colours to plot on each level, from which the relevant colour for the required level is sampled.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># Default colors</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">colors</span><span class="p">:</span>
+            <span class="n">colors</span> <span class="o">=</span> <span class="p">[[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">],</span> <span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">],</span> <span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">],</span> <span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">]]</span>
+
+        <span class="n">ec</span> <span class="o">=</span> <span class="n">colors</span><span class="p">[</span><span class="n">level</span><span class="p">][:]</span>
+
+        <span class="n">outline</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">level_outlines</span><span class="p">[</span><span class="n">level</span><span class="p">]</span>
+
+        <span class="n">outline</span> <span class="o">=</span> <span class="n">outline</span><span class="o">.</span><span class="n">scale</span><span class="p">(</span><span class="mf">0.99</span><span class="p">,</span> <span class="mf">0.99</span><span class="p">)</span>
+        <span class="n">outline</span><span class="o">.</span><span class="n">plot</span><span class="p">(</span><span class="n">ax</span><span class="o">=</span><span class="n">ax</span><span class="p">,</span> <span class="n">edgecolor</span><span class="o">=</span><span class="n">ec</span><span class="p">,</span> <span class="n">facecolor</span><span class="o">=</span><span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">],</span> <span class="n">linewidth</span><span class="o">=</span><span class="mf">3.0</span><span class="p">)</span></div>
+
+<div class="viewcode-block" id="PltFile.set_scale_slice_transform"><a class="viewcode-back" href="../../plotting-ref.html#chombopy.plotting.PltFile.set_scale_slice_transform">[docs]</a>    <span class="k">def</span> <span class="nf">set_scale_slice_transform</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">indices</span><span class="p">,</span> <span class="n">reflect</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Describe how to extract data.</span>
+
+<span class="sd">        Parameters</span>
+<span class="sd">        ----------</span>
+<span class="sd">        indices :</span>
+<span class="sd">        reflect : bool</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">indices</span> <span class="o">=</span> <span class="n">indices</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">reflect</span> <span class="o">=</span> <span class="n">reflect</span></div>
+
+<div class="viewcode-block" id="PltFile.reset_scale_slice_transform"><a class="viewcode-back" href="../../plotting-ref.html#chombopy.plotting.PltFile.reset_scale_slice_transform">[docs]</a>    <span class="k">def</span> <span class="nf">reset_scale_slice_transform</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Reset transform settings to their initial value (none)</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">indices</span> <span class="o">=</span> <span class="kc">None</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">reflect</span> <span class="o">=</span> <span class="kc">None</span></div>
+
+<div class="viewcode-block" id="PltFile.skip_component_import_names"><a class="viewcode-back" href="../../plotting-ref.html#chombopy.plotting.PltFile.skip_component_import_names">[docs]</a>    <span class="k">def</span> <span class="nf">skip_component_import_names</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Provides an interface to skip the import of certain component names</span>
+
+<span class="sd">        Returns</span>
+<span class="sd">        -------</span>
+<span class="sd">        List</span>
+<span class="sd">            component names to not import</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="p">[]</span></div></div>
+
+</pre></div>
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="../../index.html">chombopy</a></h1>
+
+
+
+
+
+
+<p>
+<iframe src="https://ghbtns.com/github-btn.html?user=jrgparkinson&repo=chombopy&type=watch&count=true&size=large&v=2"
+  allowtransparency="true" frameborder="0" scrolling="0" width="200px" height="35px"></iframe>
+</p>
+
+
+
+
+
+<h3>Navigation</h3>
+<p class="caption"><span class="caption-text">Getting Started</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../examples.html">Examples</a></li>
+</ul>
+<p class="caption"><span class="caption-text">User Guide</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../plotting.html">Plotting guide</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../inputs.html">Inputs</a></li>
+</ul>
+<p class="caption"><span class="caption-text">Reference</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../plotting-ref.html">Plotting</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../inputs-ref.html">Inputs</a></li>
+</ul>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="../../index.html">Documentation overview</a><ul>
+  <li><a href="../index.html">Module code</a><ul>
+  </ul></li>
+  </ul></li>
+</ul>
+</div>
+<div id="searchbox" style="display: none" role="search">
+  <h3 id="searchlabel">Quick search</h3>
+    <div class="searchformwrapper">
+    <form class="search" action="../../search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" />
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</div>
+<script>$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2020, Jamie Parkinson.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 2.4.4</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.12</a>
+      
+    </div>
+
+    
+
+    
+  </body>
+</html>

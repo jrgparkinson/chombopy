@@ -1,0 +1,24 @@
+.. currentmodule:: chombopy
+
+
+API
+-------------------
+
+Auto generated documentation.
+
+
+Plotting
+############
+
+.. automodule:: chombopy.plotfile
+   :members:
+
+.. autoclass:: chombopy.plotfile.PltFile
+   :members:
+
+Inputs
+###########
+
+.. automodule:: chombopy.inputs
+   :members:
+
