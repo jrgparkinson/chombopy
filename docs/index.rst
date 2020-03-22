@@ -66,8 +66,9 @@ See below for more examples and guides.
 
 **Reference**
 
-* :doc:`plotting`
-* :doc:`inputs`
+* :doc:`plotting-ref`
+* :doc:`inputs-ref`
+* :doc:`time_table-ref`
 
 .. toctree::
    :maxdepth: 1
@@ -76,8 +77,7 @@ See below for more examples and guides.
 
    plotting-ref
    inputs-ref
-
-
+   timetable-ref
 
 
 Indices and tables

@@ -61,5 +61,6 @@ Chombo plot files can be read using the :py:class:`PltFile` class. An example ca
     plt.savefig('plt000100.jpg')
     plt.show()
 Result:
+
 .. image:: images/plt000100.jpg
    :width: 600
