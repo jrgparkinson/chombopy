@@ -44,14 +44,23 @@ print(temperature.mean())
 ```
 
 ## Documentation
-Further documentation can be found [online](https://jrgparkinson.github.io/chombopy/_build/html/). To compile the documentation locally, setup a virtual environment:
+Further documentation can be found [online](https://jrgparkinson.github.io/chombopy/_build/html/). To compile the documentation locally, get the code and setup a virtual environment:
 ```bash
+$ git clone https://github.com/jrgparkinson/chombopy.git
+$ cd chombopy
 $ python3 -m venv .venv
 $ source .venv/bin/activate
-$ pip install
+$ pip install .
 ```
 Then to build the documentation with Sphinx:
 ```bash
 $ cd docs
 $ make html 
 ```
+
+## Testing
+Unit tests can be run in a similar way to building the documentation. Having got a copy of the code and setup a virtual environment, from the root directory (i.e. `/path/to/chombopy`), simply run
+```bash
+$ py.test
+```
+Code coverage will be published to `chombopy/docs/test/coverage.html`, and test results to `chombopy/docs/test/report.html`.
