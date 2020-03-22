@@ -9,3 +9,4 @@
 *.*env*/
 docs/test/*
 docs/_build/*
+.cache*
