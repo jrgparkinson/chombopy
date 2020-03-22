@@ -9,13 +9,13 @@ chombopy documentation
 
 chombopy is a Python package for running, analysing, and plotting Chombo_ simulations.
 
-Installation is easy:
+To install:
 
 .. code-block:: bash
 
    $ pip install chombopy
 
-Then to use load a Chombo output file:
+Then to load a Chombo output file:
 
 .. code-block:: python
 
@@ -23,7 +23,7 @@ Then to use load a Chombo output file:
    >>> plot_file = PltFile('/path/to/plt1234.hdf5')
    >>> plot_file.comp_names
    ['Enthalpy', 'Bulk concentration', 'Temperature']
-    >>> plot_file.get_level_data('Temperature', 0).mean()
+    >>> plot_file.get_level_data('Temperature', level=0).mean()
    <xarray.DataArray 'Temperature' ()>
    array(1.19985756)
    Coordinates:

@@ -37,6 +37,7 @@ setup(name=name,
                         'scikit-image>=0.16.2',
                         'xarray>=0.11.3',
                         'h5py>=2.9.0',
-                        'numpy>=1.16.0'] + test_requires + setup_requires,
+                        'numpy>=1.16.0',
+                        'descartes'] + test_requires + setup_requires,
       tests_require=test_requires,
       zip_safe=False)
