@@ -3,8 +3,20 @@ import math
 
 
 def read_inputs(inputs_file):
-    """ Load up an inputs file and parse it into a dictionary """
+    """
+    Load up an inputs file and parse it into a dictionary
 
+    Parameters
+    ----------
+    inputs_file : str
+        Path to the inputs file to load
+
+    Returns
+    -------
+    params : dict
+        Dictionary of parameters
+
+    """
     params = {}
 
     # Read in the file
@@ -12,7 +24,6 @@ def read_inputs(inputs_file):
         file_data = f.readlines()
 
     for line in file_data:
-        # print(line)
         # Ignore lines that are commented out
         if line.startswith("#"):
             continue
@@ -37,13 +48,24 @@ def read_inputs(inputs_file):
 
             params[key] = val
 
-    # print(params)
+
     return params
 
 
 def write_inputs(location, params, ignore_list=None, do_sort=True):
     """
-     Write out a set of parameters to an inputs file
+    Write out a set of parameters to an inputs file
+
+    Parameters
+    ----------
+    location : str
+        Path to write file to
+    params : dict
+        Parameters to write out
+    ignore_list : list, optional
+        List of parameter names to not write out
+    do_sort : bool, optional
+        Whether to sort parameters alphabetically by name
     """
     output_file = ""
 
@@ -69,6 +91,11 @@ def write_inputs(location, params, ignore_list=None, do_sort=True):
 def isfloat(value):
     """
     Determine if value is a float
+
+    Parameters
+    ----------
+    value :
+        Value
     """
     try:
         float_val = float(value)
@@ -83,6 +110,11 @@ def isfloat(value):
 def isint(value):
     """
     Determines if value is an integer
+
+    Parameters
+    ----------
+    value :
+        Value
     """
 
     try:
@@ -99,6 +131,18 @@ def isint(value):
 def string_to_array(string, conversion=None):
     """ Convert a string separated by spaces to an array, i.e.
     a b c -> [a,b,c]
+
+    Parameters
+    ----------
+    string : str
+        String to convert to an array
+    conversion : function, optional
+        Function to use to convert the string to an array
+
+    Returns
+    -------
+    array : list
+        List of items
      """
 
     if isinstance(string, list):
@@ -116,6 +160,16 @@ def string_to_array(string, conversion=None):
 def array_to_string(array):
     """ Convert an array to a string with the elements separated by spaces i.e.
     [a,b,c] -> a b c
+
+    Parameters
+    ----------
+    array : list
+        List of values
+
+    Returns
+    -------
+    string : str
+        Values concatenated into a string
     """
     str_array = [str(a) for a in array]
     string = " ".join(str_array)
@@ -123,7 +177,18 @@ def array_to_string(array):
 
 
 def is_power_of_two(n):
-    """ Determine if a number if a power of 2 """
+    """ Determine if a number if a power of 2
+
+    Parameters
+    ----------
+    n : float
+        Number in question
+
+    Returns
+    -------
+    result : bool
+        Whether the input is a power of 2
+    """
     test = math.log(n) / math.log(2)
 
     if round(test) == test:
@@ -133,7 +198,21 @@ def is_power_of_two(n):
 
 
 def add_params(default_params, extra_params):
-    """ Add params from extra_params to defaultParams """
+    """ Add params from extra_params to default_params
+
+    Parameters
+    ----------
+    default_params : dict
+        Original parameters
+    extra_params : dict
+        Extra parameters to add
+
+    Returns
+    ------
+    params : dict
+        Merged parameters, where extra_params can overwrite default_params
+
+    """
 
     for k, v in extra_params.items():
         default_params[k] = v

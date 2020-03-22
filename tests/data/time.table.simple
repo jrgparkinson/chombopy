@@ -1,0 +1,14 @@
+[0] main
+None of this matters
+
+[0] main 9.03062 100.0% 1 6505520 1 MFlops 
+   [1] program 8.80352 97.5% 1 6505520 1 MFlops 
+      [2] AMR::run 8.58002 95.0% 1 6292432 1 MFlops 
+      [3] AMR::timeStep 5.87694 65.1% 50 6292432 1 MFlops 
+         [4] Program::method 5.87694 65.1% 50 6292432 1 MFlops 
+   [7] AMR::timeStep::postTimeStep 1.45286 16.1% 50 6129472 4 MFlops  
+      [414] AMR::timeStep 0.02004  0.2% 50 0 0 MFlops 
+         [1400] Program::method 0.00047  0.0% 200 0 0 MFlops 
+   [1840] Program::someOtherMethod 0.00021  0.0% 200 0 0 MFlops 
+stack top 0x55bb070cb737, stack bottom 0x55bb070baae0, stack size =    0.066 MB 
+[3968] LevelData::exchange (exchange + copier)

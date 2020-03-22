@@ -69,6 +69,10 @@ class TestPltFile(unittest.TestCase):
             assert pf.get_norm('Enthalpy').vmax == pytest.approx(6.30735504, 5)
             assert pf.get_norm('Enthalpy').vmin == pytest.approx(1.49226642, 5)
 
+            x, y = pf.get_mesh_grid_for_level(1)
+            assert len(x) == 32
+            assert len(y) == 24
+
         pf_no_name = PltFile(self.DATA_FILE_NO_FRAME)
         self.assertEqual(pf_no_name.frame, -1)
 
