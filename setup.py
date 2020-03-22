@@ -1,12 +1,20 @@
 from setuptools import setup, find_packages
-
 from os import path
+
 this_directory = path.abspath(path.dirname(__file__))
 with open(path.join(this_directory, 'README.md'), encoding='utf-8') as f:
     long_description = f.read()
 
-setup(name='chombopy',
-      version='0.1.3',
+name = 'chombopy'
+version = '0.1'
+release = '0.1.3'
+
+test_requires = ['pytest-cov', 'coverage', 'pytest-html']
+setup_requires = ['wheel', 'sphinx',
+                        'recommonmark>=0.5.0']  #m2r
+
+setup(name=name,
+      version=release,
       description='Running, analysing and plotting Chombo simulations',
       long_description=long_description,
       long_description_content_type='text/markdown',
@@ -20,7 +28,7 @@ setup(name='chombopy',
         "License :: OSI Approved :: MIT License",
         "Operating System :: OS Independent",
       ],
-      setup_requires = ['wheel'],
+      setup_requires=setup_requires,
       python_requires='>=3.6',
       install_requires=['matplotlib>=3.0.0',
                         'Shapely>=1.6.0',
@@ -29,9 +37,6 @@ setup(name='chombopy',
                         'scikit-image>=0.16.2',
                         'xarray>=0.11.3',
                         'h5py>=2.9.0',
-                        'numpy>=1.16.0',
-                        'sphinx',
-                        'recommonmark>=0.5.0',
-                        'm2r'],
-      tests_require=['pytest', 'coverage', 'pytest-html'],
+                        'numpy>=1.16.0'] + test_requires + setup_requires,
+      tests_require=test_requires,
       zip_safe=False)

@@ -16,17 +16,15 @@ jobs:
 
       - name: Install locally
         run:
-          python -m pip install -e .
+          python setup.py install
 
       - name: Run unit tests before deployment
         run: |
-          cd tests
-          python -m unittest
-          cd ..
+          py.test
 
-      - name: Install wheel
-        run:
-          python -m pip install wheel --user
+      # - name: Install wheel
+      #   run:
+      #     python -m pip install wheel --user
 
       - name: Build binary
         run:

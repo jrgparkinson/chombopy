@@ -5,3 +5,6 @@
 *.egg-info/
 *.venv/
 *.eggs/
+*.coverage
+*.*env*/
+docs/test/*
