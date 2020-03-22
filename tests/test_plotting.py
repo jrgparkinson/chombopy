@@ -1,10 +1,10 @@
 import unittest
 from chombopy.plotting import PltFile
-import matplotlib as mpl
 import matplotlib.pyplot as plt
 import logging
 import os
 import numpy as np
+import pytest
 
 class ChildPltFileForTesting(PltFile):
 
@@ -66,7 +66,8 @@ class TestPltFile(unittest.TestCase):
             assert np.array_equal(outline.total_bounds, [0, 0.375, 1, 1])
             assert outline.area[0] == 0.53125
 
-            assert pf.get_norm('Enthalpy') == mpl.colors.Normalize(vmin=1.49226642, vmax=6.30735504)
+            assert pf.get_norm('Enthalpy').vmax == pytest.approx(6.30735504, 5)
+            assert pf.get_norm('Enthalpy').vmin == pytest.approx(1.49226642, 5)
 
         pf_no_name = PltFile(self.DATA_FILE_NO_FRAME)
         self.assertEqual(pf_no_name.frame, -1)
