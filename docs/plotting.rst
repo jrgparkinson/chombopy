@@ -1,5 +1,5 @@
-Plotting guide
-=============================
+Plotting
+==========
 
 The core of the plotting module is the PltFile object, which represents a Chombo HDF5 output file.
 
@@ -17,3 +17,9 @@ N-dimensional volumetric data on each level of refinement is represented by an x
     >>> pf.get_level_data('Enthalpy', 0)
     <xarray.DataArray 'Enthalpy' (y: 16, x: 16)>
 
+
+Reference
+----------
+
+.. automodule:: chombopy.plotting
+   :members:

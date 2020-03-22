@@ -1,5 +1,5 @@
 Inputs
-=====================
+============
 
 Inputs for Chombo simulation take the form of a text file listing parameters and their values, e.g.
 
@@ -39,3 +39,10 @@ And then write them back out
 .. code-block:: python
 
     write_inputs('/path/to/new_inputs', inputs)
+
+
+Reference
+----------
+
+.. automodule:: chombopy.inputs
+   :members:
