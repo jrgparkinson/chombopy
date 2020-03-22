@@ -1,8 +1,5 @@
 from setuptools import setup, find_packages
 from os import path
-from sphinx.setup_command import BuildDoc
-
-cmdclass = {'build_sphinx': BuildDoc}
 
 this_directory = path.abspath(path.dirname(__file__))
 with open(path.join(this_directory, 'README.md'), encoding='utf-8') as f:
@@ -11,6 +8,10 @@ with open(path.join(this_directory, 'README.md'), encoding='utf-8') as f:
 name = 'chombopy'
 version = '0.1'
 release = '0.1.3'
+
+test_requires = ['pytest-cov', 'coverage', 'pytest-html']
+setup_requires = ['wheel', 'sphinx',
+                        'recommonmark>=0.5.0']  #m2r
 
 setup(name=name,
       version=release,
@@ -27,9 +28,7 @@ setup(name=name,
         "License :: OSI Approved :: MIT License",
         "Operating System :: OS Independent",
       ],
-      setup_requires = ['wheel', 'sphinx',
-                        'recommonmark>=0.5.0',
-                        'm2r'],
+      setup_requires=setup_requires,
       python_requires='>=3.6',
       install_requires=['matplotlib>=3.0.0',
                         'Shapely>=1.6.0',
@@ -38,14 +37,6 @@ setup(name=name,
                         'scikit-image>=0.16.2',
                         'xarray>=0.11.3',
                         'h5py>=2.9.0',
-                        'numpy>=1.16.0'],
-      tests_require=['pytest', 'coverage', 'pytest-html'],
-      cmdclass=cmdclass,
-      # these are optional and override conf.py settings
-      command_options={
-        'build_sphinx': {
-            'project': ('setup.py', name),
-            'version': ('setup.py', version),
-            'release': ('setup.py', release),
-            'source_dir': ('setup.py', 'doc')}},
+                        'numpy>=1.16.0'] + test_requires + setup_requires,
+      tests_require=test_requires,
       zip_safe=False)

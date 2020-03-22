@@ -50,17 +50,18 @@ $ git clone https://github.com/jrgparkinson/chombopy.git
 $ cd chombopy
 $ python3 -m venv .venv
 $ source .venv/bin/activate
-$ pip install .
+$ python setup.py install
 ```
 Then to build the documentation with Sphinx:
 ```bash
 $ cd docs
-$ make html 
+$ make html
 ```
 
 ## Testing
-Unit tests can be run in a similar way to building the documentation. Having got a copy of the code and setup a virtual environment, from the root directory (i.e. `/path/to/chombopy`), simply run
+Unit tests can be run in a similar way to building the documentation. Having got a copy of the code and setup a virtual environment, from the root directory (i.e. `/path/to/chombopy`), simply run the following from your virtual environment
 ```bash
+$ python setup.py install
 $ py.test
 ```
 Code coverage will be published to `chombopy/docs/test/coverage.html`, and test results to `chombopy/docs/test/report.html`.

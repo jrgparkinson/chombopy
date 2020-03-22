@@ -6,3 +6,4 @@
 *.venv/
 *.eggs/
 *.coverage
+*.*env*/
