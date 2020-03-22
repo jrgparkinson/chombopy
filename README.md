@@ -44,7 +44,7 @@ print(temperature.mean())
 ```
 
 ## Documentation
-Further documentation can be found [online](https://jrgparkinson.github.io/chombopy/_build/html/). To compile the documentation locally, get the code and setup a virtual environment:
+Further documentation can be found [online](https://chombopy.readthedocs.io/en/latest/). To compile the documentation locally, get the code and setup a virtual environment:
 ```bash
 $ git clone https://github.com/jrgparkinson/chombopy.git
 $ cd chombopy
