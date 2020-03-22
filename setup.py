@@ -33,4 +33,5 @@ setup(name='chombopy',
                         'sphinx',
                         'recommonmark>=0.5.0',
                         'm2r'],
+      tests_require=['pytest', 'coverage', 'pytest-html'],
       zip_safe=False)

@@ -1,6 +1,7 @@
 import unittest
 from chombopy import inputs
-
+import os
+from unittest.mock import Mock
 # Run with e.g.
 # coverage run -m unittest testUtils.py; coverage html
 # python -m unittest
@@ -30,7 +31,33 @@ class TestInputs(unittest.TestCase):
         pass
 
     def test_write_inputs(self):
-        pass
+
+        # Test basic writing of different data types
+        inputs.write_inputs('test.inputs', {'a': [0, 0], 'b': 1.04, 'c': True, 'd': 1, 'e': 'some string'})
+        with open('test.inputs', 'r') as f:
+            assert f.readlines() == ['\n', 'a=0 0\n', 'b=1.04\n', 'c=True\n', 'd=1\n', 'e=some string']
+        os.remove('test.inputs')
+
+        # Test ignoring keys
+        inputs.write_inputs('test.inputs', {'a': [0, 0], 'b': 1.04, 'c': True, 'd': 1, 'e': 'some string'},
+                            ignore_list=['b', 'c'])
+        with open('test.inputs', 'r') as f:
+            assert f.readlines() == ['\n', 'a=0 0\n', 'd=1\n', 'e=some string']
+        os.remove('test.inputs')
+
+        #  Test sorting
+        inputs.write_inputs('test.inputs.sorted', {'b': 1.04, 'a': [0, 0], },
+                            do_sort=True)
+        inputs.write_inputs('test.inputs.unsorted', {'b': 1.04, 'a': [0, 0], },
+                            do_sort=False)
+        with open('test.inputs.sorted', 'r') as f:
+            assert f.readlines() == ['\n', 'a=0 0\n', 'b=1.04']
+        os.remove('test.inputs.sorted')
+        with open('test.inputs.unsorted', 'r') as f:
+            assert f.readlines() == ['\n', 'b=1.04\n', 'a=0 0']
+        os.remove('test.inputs.unsorted')
+
+
 
     def test_time_since_folder_updated(self):
         pass

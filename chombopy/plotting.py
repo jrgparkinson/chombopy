@@ -61,14 +61,14 @@ class PltFile:
         self.level_outlines = []
         self.full_domain_size = None
         self.inputs = None
+        self.filename = filename
 
         # Now read all the component names
         self.data = {}
 
-        if not os.path.exists(filename):
-            LOGGER.info('PltFile: file does not exist "%s"' % filename)
+        if not os.path.exists(self.filename):
+            LOGGER.info('PltFile: file does not exist "%s"' % self.filename)
             return
-        self.filename = filename
 
         # Get the plot prefix and frame number assuming a format
         prefix_format = r"([^\d\/]*)(\d+)\.\dd\.hdf5"
@@ -139,14 +139,11 @@ class PltFile:
 
         # Now read all the component names
         self.data = {}
+        self.comp_names = []
 
         for i in range(0, self.num_comps):
             name = attrs["component_" + str(i)]
             name = name.decode("UTF-8")
-
-            # Might want to avoid importing some names
-            if name in self.skip_component_import_names():
-                continue
 
             # Previously, we treated vectors and scalars differently,
             # now we just store vector components as separate scalar fields
@@ -379,7 +376,6 @@ class PltFile:
                         if is_vector:
                             if comp_name[0] == "x":
                                 component = 0
-
                             elif comp_name[0] == "y":
                                 component = 1
                             elif comp_name[0] == "z":
@@ -496,7 +492,7 @@ class PltFile:
 
         Parameters
         ----------
-        data_unshaped : list
+        data_unshaped : numpy.array
             1D list of data values
         level : int
             Level of refinement data is from
@@ -519,7 +515,7 @@ class PltFile:
         data_box_comp = data_unshaped[indices[0] : indices[1]]
 
         if len(data_box_comp) == 0:
-            LOGGER.info("ERROR - no data in box")
+            LOGGER.warning("No data in box")
 
         # Chombo data is indexed in reverse (i.e. data[k, j, i]), so whilst we have n_cells_dir = [Nx, Ny, Nz],
         # we need to reshape according to [Nz, Ny, Nx] before then transposing to get
@@ -543,13 +539,11 @@ class PltFile:
         extended_coords = coords
         extended_coords["level"] = level
 
-        # It's really unclear when we do and don't need to transpose
-        # reshaped_data = reshaped_data.transpose()
-        # dim_list = dim_list[::-1]
 
+        # If for some reason the data isn't in the right shape, try transposing
         if not reshaped_data.shape[0] == len(extended_coords[dim_list[0]]):
+            LOGGER.warning("Reshaped data inconsistent with coordinates")
             reshaped_data = reshaped_data.transpose()
-            # dim_list = dim_list[::-1]
 
         xarr_component_box = xr.DataArray(
             reshaped_data,
@@ -626,20 +620,16 @@ class PltFile:
         # Set covered cells to NaN
         # This is really slow, I'm sure there's a faster way
         if valid_only and level < self.num_levels - 1:
-            coarseness = self.levels[level][self.REF_RATIO]
-            fine_level = np.array(self.ds_levels[level + 1][field])
-            temp = fine_level.reshape(
-                (
-                    fine_level.shape[0] // coarseness,
-                    coarseness,
-                    fine_level.shape[1] // coarseness,
-                    coarseness,
-                )
-            )
-            coarse_fine = np.sum(temp, axis=(1, 3))
+            ref_ratio = self.levels[level][self.REF_RATIO]
+            fine_level = self.ds_levels[level + 1][field].copy(deep=True)
 
-            isnan = np.isnan(coarse_fine)
-            # ld = ld.where(isnan == True)
+            coarsened_fine = fine_level.coarsen(x=ref_ratio, y=ref_ratio).mean()
+
+            coarse_nans = ld.copy(deep=True) * float('NaN')
+            coarsened_fine = coarsened_fine.combine_first(coarse_nans)
+
+            # NaN values are those which aren't covered on the finer level
+            isnan = np.isnan(coarsened_fine)
             ld = ld.where(isnan)
 
         # By default, swap to python indexing
@@ -775,7 +765,7 @@ class PltFile:
         field = self.get_level_data(components[0])
 
         field_array = np.array(field)
-        grid_size = field_array.shape
+
 
         x_coords = np.array(field.coords["x"])
         y_coords = np.array(field.coords["y"])
@@ -786,18 +776,32 @@ class PltFile:
             extend = dx / 2
         else:
             extend = 0
+
         y, x = np.mgrid[
             slice(min(x_coords) - extend, max(x_coords) + extend, dx),
             slice(min(y_coords) - extend, max(y_coords) + extend, dx),
         ]
 
-        coord_max = [(grid_size[i] + 1) * dx for i in range(0, self.space_dim)]
-        grid_spacing = [coord_max[i] / grid_size[i] for i in range(0, self.space_dim)]
-        grids = np.mgrid[
-            [slice(0, coord_max[i], grid_spacing[i]) for i in range(0, self.space_dim)]
-        ]
-
         if self.space_dim == 3:
+
+            dir_strings = ['x', 'y', 'z']
+            dir_extents = []
+            for i in range(0, self.space_dim):
+                dir_coords = np.array(field.coords[dir_strings[i]])
+                dir_extents.append( (min(dir_coords) - extend, max(dir_coords) + extend) )
+
+            # grid_size = field_array.shape
+            # if extend_grid:
+            #     grid_size = grid_size + (1, 1, 1)
+
+            # coord_max = [(grid_size[i]) * dx for i in range(0, self.space_dim)]
+            # coords_min = [dx/2-extend] * self.space_dim
+            # grid_spacing = [coord_max[i] / grid_size[i] for i in range(0, self.space_dim)]
+            grid_spacing = dx
+            grids = np.mgrid[
+                [slice(dir_extents[i][0], dir_extents[i][1] + grid_spacing, grid_spacing) for i in range(0, self.space_dim)]
+            ]
+
             x = grids[0]
             y = grids[1]
             z = grids[2]
@@ -970,7 +974,8 @@ class PltFile:
 
         Parameters
         ----------
-        indices :
+        indices : dict
+            indices to take, e.g. dict(y=slice(0,3), x=slice(2,5))
         reflect : bool
         """
         self.indices = indices
@@ -982,15 +987,3 @@ class PltFile:
         """
         self.indices = None
         self.reflect = None
-
-    def skip_component_import_names(self):
-        """
-        Provides an interface to skip the import of certain component names
-
-        Returns
-        -------
-        component_names : list
-            component names to not import
-        """
-        return []
-
