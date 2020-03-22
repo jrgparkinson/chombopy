@@ -1,5 +1,6 @@
 import unittest
 from chombopy.plotting import PltFile
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 import logging
 import os
@@ -58,6 +59,14 @@ class TestPltFile(unittest.TestCase):
 
             pf.load_data(zero_x=True)
             assert pf.get_level_data('Enthalpy').coords['x'][0] == 0
+
+            assert np.array_equal(pf.get_levels(), [0,1,2])
+
+            outline = pf.level_outlines[2]
+            assert np.array_equal(outline.total_bounds, [0, 0.375, 1, 1])
+            assert outline.area[0] == 0.53125
+
+            assert pf.get_norm('Enthalpy') == mpl.colors.Normalize(vmin=1.49226642, vmax=6.30735504)
 
         pf_no_name = PltFile(self.DATA_FILE_NO_FRAME)
         self.assertEqual(pf_no_name.frame, -1)

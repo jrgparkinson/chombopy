@@ -25,24 +25,41 @@ Chombo input files can be read and written using some utility functions
 
 Reading data and plotting
 ############################
-Chombo plot files can be read using the :py:class:`PltFile` class:
+Chombo plot files can be read using the :py:class:`PltFile` class. An example can be found in examples/example_plotting.py:
 
 .. code-block:: python
 
-    from chombopy.plotfile import PltFile
     import matplotlib.pyplot as plt
+    from chombopy.plotting import PltFile, setup_mpl_latex
+    import matplotlib.cm as cm
 
-    pf = PltFile('/path/to/file.hdf5')
-    pf.load_data()
+    pf = PltFile('../tests/data/plt000100.2d.hdf5')
+
+    setup_mpl_latex(14)
+    fig = plt.figure()
+    ax = plt.gca()
+    cmap = 'viridis'
+    field = 'Temperature'
 
     # Get data for the temperature variable on level 2
-    temperature = pf.get_level_data('Temperature', 2)
+    for level in pf.get_levels():
+        temperature = pf.get_level_data(field, level)
 
-    # temperature is an xarray.DataSet object, which can be plotted using matplotlib
-    x = temperature.coords['x']
-    y = temperature.coords['y']
-    plt.pcolormesh(x, y, temperature)
+        # temperature is an xarray.DataSet object, which can be plotted using matplotlib
+        x, y = pf.get_mesh_grid_for_level(level=level, grow=True)
+        ax.pcolormesh(x, y, temperature, cmap=cmap)
 
-    # Or you can do some analysis using the xarray/numpy functionality
-    print(temperature.mean())
+        # Or you can do some analysis using the xarray/numpy functionality
+        print(temperature.mean())
 
+
+    pf.plot_outlines(ax)
+
+    cbar = fig.colorbar(cm.ScalarMappable(norm=pf.get_norm(field), cmap=cmap), ax=ax)
+    cbar.ax.set_ylabel(field)
+
+    plt.savefig('plt000100.jpg')
+    plt.show()
+Result:
+.. image:: images/plt000100.jpg
+   :width: 600

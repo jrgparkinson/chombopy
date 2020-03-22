@@ -1,8 +1,11 @@
 import h5py
 import numpy as np
+import matplotlib as mpl
 from matplotlib import pyplot
 import re
 import os
+import socket
+import math
 import logging
 import xarray as xr
 from shapely.ops import cascaded_union
@@ -255,9 +258,12 @@ class PltFile:
 
                 # Construct vertices in n dimensions
                 polygon_vertices_auto = list(product(*end_points))
+                x = [p[0] for p in polygon_vertices_auto]
+                y = [p[1] for p in polygon_vertices_auto]
+                centroid = (sum(x) / len(polygon_vertices_auto), sum(y) / len(polygon_vertices_auto))
                 polygon_vertices_auto = sorted(
                     polygon_vertices_auto,
-                    key=lambda x: np.arctan(x[1] / max(abs(x[0]), 0.0001)),
+                    key=lambda x: math.atan2( x[1]-centroid[1], x[0]-centroid[0]),
                 )
 
                 poly = Polygon(polygon_vertices_auto)
@@ -705,6 +711,27 @@ class PltFile:
 
         return rotate_dims
 
+    def get_mesh_grid_for_level(self, level=0, grow=False):
+        """
+
+        Gets the coordinates for the given DataArray as numpy arrays
+
+        Parameters
+        ----------
+        arr : xarray.DataArray
+            DataArray (including coordinates) to get coordinates for
+        grow : bool
+            Whether to grow the domain by :math:`\Delta x/2` in each direction to extend to the edges of the domain
+
+        Returns
+        -------
+        x, y : numpy.array
+            Coordinates in x and y directions.
+
+        """
+        arr = self.get_level_data(self.comp_names[0], level=level)
+        return PltFile.get_mesh_grid_xarray(arr, grow)
+
     @staticmethod
     def get_mesh_grid_xarray(arr, grow=False):
         """
@@ -739,7 +766,7 @@ class PltFile:
 
         return x, y
 
-    def get_mesh_grid(self, rotate_dims=False, extend_grid=True):
+    def get_mesh_grid(self, rotate_dims=False, extend_grid=True, level=0):
         """
 
         Returns coordinate grids in each dimension
@@ -751,6 +778,8 @@ class PltFile:
         extend_grid : bool, optional
             Whether to extend the grid by :math:`\Delta x/2` in each dimension to cover the domain edges,
             rather than stopping at the center of the cells on the edge of the domain.
+        level : int
+            level of refinement
 
         Returns
         -------
@@ -762,10 +791,7 @@ class PltFile:
 
         components = list(self.data.keys())
 
-        field = self.get_level_data(components[0])
-
-        field_array = np.array(field)
-
+        field = self.get_level_data(components[0], level=level)
 
         x_coords = np.array(field.coords["x"])
         y_coords = np.array(field.coords["y"])
@@ -987,3 +1013,60 @@ class PltFile:
         """
         self.indices = None
         self.reflect = None
+
+    def get_levels(self):
+        """
+        Get list of levels in this dataset
+        Returns
+        -------
+        levels : list
+            list of levels e.g. [0,1,2]
+        """
+        return np.arange(0, self.num_levels)
+
+    def get_norm(self, field, levels=None):
+        """
+        Compute min and max values of field across the AMR hierarchy
+        Parameters
+        ----------
+        field : str
+            Field name
+        levels : list, optional
+            List of levels to consider e.g. [0,1]
+
+        Returns
+        -------
+        norm : matplotlib.colors.Normalize
+            Normalize object with min and max values defined
+
+        """
+        if levels is None:
+            levels = self.get_levels()
+
+        min_val = self.get_level_data(field, level=levels[0]).min()
+        max_val = self.get_level_data(field, level=levels[0]).max()
+
+        for level in levels[1:]:
+            min_val = min(min_val, self.get_level_data(field, level).min())
+            max_val = max(max_val, self.get_level_data(field, level).max())
+
+        return mpl.colors.Normalize(vmin=min_val, vmax=max_val)
+
+
+def setup_mpl_latex(font_size=9, linewidth=1):
+    """
+    Setup matplotlib for plotting with latex styles.
+    """
+
+    # Need the mathsrfs package for \mathscr if text.usetex = True
+    params = {'text.latex.preamble': ['\\usepackage{gensymb}', '\\usepackage{mathrsfs}', '\\usepackage{amsmath}'],
+              'axes.labelsize': font_size, 'axes.titlesize': font_size, 'legend.fontsize': font_size,
+              'xtick.labelsize': font_size, 'ytick.labelsize': font_size, 'font.size': font_size,
+              'xtick.direction': 'in', 'ytick.direction': 'in', 'lines.markersize': 3, 'lines.linewidth': linewidth,
+              'text.usetex': True,  'font.family': 'serif', 'backend': 'ps'}
+
+    if 'osx' in socket.gethostname():
+        params['pgf.texsystem'] = 'pdflatex'
+        os.environ['PATH'] = os.environ['PATH'] + ':/Library/TeX/texbin/:/usr/local/bin/'
+
+    mpl.rcParams.update(params)
