@@ -7,3 +7,4 @@
 *.eggs/
 *.coverage
 *.*env*/
+docs/test/*
