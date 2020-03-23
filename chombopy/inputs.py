@@ -48,7 +48,6 @@ def read_inputs(inputs_file):
 
             params[key] = val
 
-
     return params
 
 

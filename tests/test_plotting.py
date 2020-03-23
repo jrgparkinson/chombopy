@@ -6,17 +6,17 @@ import os
 import numpy as np
 import pytest
 
-class ChildPltFileForTesting(PltFile):
 
+class ChildPltFileForTesting(PltFile):
     def __init__(self, filename):
         super().__init__(filename)
 
-
     def should_negate_field_upon_reflection(self, field):
-        if field in ['streamfunction'] or field[0] == 'x':
+        if field in ["streamfunction"] or field[0] == "x":
             return True
 
         return False
+
 
 class TestPltFile(unittest.TestCase):
     THIS_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -58,16 +58,16 @@ class TestPltFile(unittest.TestCase):
             self.assertEqual(pf.data_loaded, False)
 
             pf.load_data(zero_x=True)
-            assert pf.get_level_data('Enthalpy').coords['x'][0] == 0
+            assert pf.get_level_data("Enthalpy").coords["x"][0] == 0
 
-            assert np.array_equal(pf.get_levels(), [0,1,2])
+            assert np.array_equal(pf.get_levels(), [0, 1, 2])
 
             outline = pf.level_outlines[2]
             assert np.array_equal(outline.total_bounds, [0, 0.375, 1, 1])
             assert outline.area[0] == 0.53125
 
-            assert pf.get_norm('Enthalpy').vmax == pytest.approx(6.30735504, 5)
-            assert pf.get_norm('Enthalpy').vmin == pytest.approx(1.49226642, 5)
+            assert pf.get_norm("Enthalpy").vmax == pytest.approx(6.30735504, 5)
+            assert pf.get_norm("Enthalpy").vmin == pytest.approx(1.49226642, 5)
 
             x, y = pf.get_mesh_grid_for_level(1)
             assert len(x) == 32
@@ -78,49 +78,56 @@ class TestPltFile(unittest.TestCase):
 
         pf_no_inputs = PltFile(self.DATA_FILE, inputs_file="does not exist")
         self.assertIsNone(pf_no_inputs.inputs)
-        assert str(pf_no_inputs) == '<PltFile object for %s>' % self.DATA_FILE
+        assert str(pf_no_inputs) == "<PltFile object for %s>" % self.DATA_FILE
 
     def test_get_level_data(self):
         pf = PltFile(self.DATA_FILE)
 
         assert pf.num_levels == 3
-        assert pf.get_level_data('does not exist') is None
+        assert pf.get_level_data("does not exist") is None
 
-        valid_only = pf.get_level_data('Porosity', valid_only=True)
-        all_data = pf.get_level_data('Porosity', valid_only=False)
+        valid_only = pf.get_level_data("Porosity", valid_only=True)
+        all_data = pf.get_level_data("Porosity", valid_only=False)
 
-        assert len(valid_only.coords['x']) == 16
-        assert len(valid_only.coords['y']) == 16
-        assert np.isnan(valid_only[5,5])
+        assert len(valid_only.coords["x"]) == 16
+        assert len(valid_only.coords["y"]) == 16
+        assert np.isnan(valid_only[5, 5])
         assert not all_data.equals(valid_only)
 
-        valid_only = pf.get_level_data('Porosity', level=1, valid_only=True)
-        all_data = pf.get_level_data('Porosity', level=1, valid_only=False)
-        assert len(valid_only.coords['x']) == 32
-        assert len(valid_only.coords['y']) == 24
-        assert np.isnan(valid_only[20,20])
+        valid_only = pf.get_level_data("Porosity", level=1, valid_only=True)
+        all_data = pf.get_level_data("Porosity", level=1, valid_only=False)
+        assert len(valid_only.coords["x"]) == 32
+        assert len(valid_only.coords["y"]) == 24
+        assert np.isnan(valid_only[20, 20])
         assert not all_data.equals(valid_only)
 
-        valid_only = pf.get_level_data('Porosity', level=2, valid_only=True)
-        all_data = pf.get_level_data('Porosity', level=2, valid_only=False)
-        assert len(valid_only.coords['x']) == 64
-        assert len(valid_only.coords['y']) == 40
+        valid_only = pf.get_level_data("Porosity", level=2, valid_only=True)
+        all_data = pf.get_level_data("Porosity", level=2, valid_only=False)
+        assert len(valid_only.coords["x"]) == 64
+        assert len(valid_only.coords["y"]) == 40
         assert valid_only.equals(all_data)
 
     def test_get_box_comp_data(self):
         pf = PltFile(self.DATA_FILE)
 
-        data = pf.get_box_comp_data(np.array([]), 0, (0, 0), 'A',  (0, 0), {'i': [], 'j': []})
+        data = pf.get_box_comp_data(
+            np.array([]), 0, (0, 0), "A", (0, 0), {"i": [], "j": []}
+        )
 
-        assert len(data.coords['i']) == 0
+        assert len(data.coords["i"]) == 0
         assert len(data) == 0
 
         # Test when n_cells_dir is inconsistent with coords
-        data = pf.get_box_comp_data(np.array([0.1, 0.2, 0.3, 0.4, 0.5, 0.6]), 0, (0, 6), 'A',
-                                    n_cells_dir=(3, 2),
-                                    coords={'i': [0, 1], 'j': [0,1,2]})
-        assert len(data.coords['i']) == 2
-        assert data[1,2] == 0.6
+        data = pf.get_box_comp_data(
+            np.array([0.1, 0.2, 0.3, 0.4, 0.5, 0.6]),
+            0,
+            (0, 6),
+            "A",
+            n_cells_dir=(3, 2),
+            coords={"i": [0, 1], "j": [0, 1, 2]},
+        )
+        assert len(data.coords["i"]) == 2
+        assert data[1, 2] == 0.6
 
     def test_plotting(self):
         pf = PltFile(self.DATA_FILE)
@@ -132,13 +139,12 @@ class TestPltFile(unittest.TestCase):
         ax.pcolormesh(porosity.x, porosity.y, porosity)
 
         # Can only execute these tests if latex is installed
-        if is_installed('latex'):
+        if is_installed("latex"):
             pf.plot_outlines(ax)
             pf.plot_field("Porosity")
 
     def test_3d(self):
-        data_files = [PltFile(self.DATA_FILE_3D),
-                      PltFile(self.DATA_FILE_3D_CHK)]
+        data_files = [PltFile(self.DATA_FILE_3D), PltFile(self.DATA_FILE_3D_CHK)]
 
         for pf in data_files:
 
@@ -159,10 +165,10 @@ class TestPltFile(unittest.TestCase):
             assert x[-1, -1, -1] == 1.0
 
             x, y, z = pf.get_mesh_grid(extend_grid=False)
-            dx = 1.0/32
+            dx = 1.0 / 32
             assert len(x) == 32
-            assert x[0, 0, 0] == dx/2
-            assert x[-1, -1, -1] == 1.0 - dx/2
+            assert x[0, 0, 0] == dx / 2
+            assert x[-1, -1, -1] == 1.0 - dx / 2
 
     def test_static_methods(self):
         pf = PltFile(self.DATA_FILE, load_data=True)
@@ -181,10 +187,10 @@ class TestPltFile(unittest.TestCase):
         dx = 0.0625
         assert len(x) == 16
         assert len(y) == 16
-        assert x[0] == dx/2
-        assert y[0] == dx/2
-        assert x[-1] == 1 - dx/2
-        assert y[-1] == 1 - dx/2
+        assert x[0] == dx / 2
+        assert y[0] == dx / 2
+        assert x[-1] == 1 - dx / 2
+        assert y[-1] == 1 - dx / 2
 
         x, y = PltFile.get_mesh_grid_xarray(porosity, grow=True)
         assert len(x) == 17
@@ -199,10 +205,12 @@ class TestPltFile(unittest.TestCase):
 
         pf.reflect = True
         child.reflect = True
-        streamfunction_unreflected = pf.get_level_data('streamfunction')
-        streamfunction_reflected = child.get_level_data('streamfunction')
+        streamfunction_unreflected = pf.get_level_data("streamfunction")
+        streamfunction_reflected = child.get_level_data("streamfunction")
 
-        assert float(streamfunction_reflected[4,4]) == -float(streamfunction_unreflected[4,4])
+        assert float(streamfunction_reflected[4, 4]) == -float(
+            streamfunction_unreflected[4, 4]
+        )
 
     def test_get_mesh_grid_3D(self):
         pass
@@ -210,18 +218,18 @@ class TestPltFile(unittest.TestCase):
     def test_scale_slice_transform(self):
         pf = PltFile(self.DATA_FILE)
 
-        indices = dict(y=slice(0,3), x=slice(3,5))
+        indices = dict(y=slice(0, 3), x=slice(3, 5))
 
         pf.set_scale_slice_transform(indices, True)
 
         assert pf.indices == indices
         assert pf.reflect == True
 
-        porosity = pf.get_level_data('Porosity')
+        porosity = pf.get_level_data("Porosity")
 
-        assert len(porosity.coords['x']) == 2
-        assert len(porosity.coords['y']) == 3
-        assert float(porosity[0,0]) == 1.0
+        assert len(porosity.coords["x"]) == 2
+        assert len(porosity.coords["y"]) == 3
+        assert float(porosity[0, 0]) == 1.0
 
         pf.reset_scale_slice_transform()
 
@@ -230,10 +238,10 @@ class TestPltFile(unittest.TestCase):
 
     def test_get_data(self):
         pf = PltFile(self.DATA_FILE)
-        assert float(pf.get_data('Porosity')[13,14]) == 1.0
+        assert float(pf.get_data("Porosity")[13, 14]) == 1.0
 
-        pf = PltFile('no data')
-        assert pf.get_data('Porosity') is None
+        pf = PltFile("no data")
+        assert pf.get_data("Porosity") is None
 
 
 def is_installed(name):
@@ -243,6 +251,7 @@ def is_installed(name):
     from shutil import which
 
     return which(name) is not None
+
 
 if __name__ == "__main__":
     # unittest.main()

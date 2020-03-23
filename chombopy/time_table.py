@@ -9,8 +9,11 @@ class TimeTableMethod:
     """
     Representation of a method in a time.table file
     """
+
     def __init__(self, string_to_parse, parent_el=None):
-        parts = re.findall(r'(\s*)\[(\d+)]\s([^\s]*)\s([\d.]+)\s+[\d.]+%\s', string_to_parse)
+        parts = re.findall(
+            r"(\s*)\[(\d+)]\s([^\s]*)\s([\d.]+)\s+[\d.]+%\s", string_to_parse
+        )
 
         self.parent = parent_el
         self.valid = False
@@ -35,13 +38,14 @@ class TimeTableMethod:
         long_desc : str
             A longer description of this object
         """
-        return '[%d] %s (%s)' % (self.id, self.name, self.time)
+        return "[%d] %s (%s)" % (self.id, self.name, self.time)
 
 
 class TimeTable:
     """
     Representation of a time.table file
     """
+
     def __init__(self, file_path):
         self.filepath = file_path
 
@@ -54,16 +58,16 @@ class TimeTable:
         Parse the time.table file into this Python object
         """
         if os.path.exists(self.filepath):
-            with open(self.filepath, 'r') as f:
+            with open(self.filepath, "r") as f:
 
                 file_contents = f.read()
 
                 # Find the second [0] tag
-                parts = file_contents.split('[0]')
+                parts = file_contents.split("[0]")
                 second_half = parts[2]
-                lines = second_half.split('\n')
+                lines = second_half.split("\n")
 
-                main_method = TimeTableMethod('[0]' + lines[0])
+                main_method = TimeTableMethod("[0]" + lines[0])
                 current_parent = main_method
 
                 prev_method = main_method
@@ -80,7 +84,7 @@ class TimeTable:
 
                     # If this method is less indented, parent increases
                     if method.indent < prev_method.indent:
-                        indent_change = (prev_method.indent - method.indent)
+                        indent_change = prev_method.indent - method.indent
                         while (indent_change > 0) and current_parent.parent:
                             current_parent = current_parent.parent
 

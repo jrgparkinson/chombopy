@@ -25,7 +25,7 @@ Chombo input files can be read and written using some utility functions
 
 Reading data and plotting
 ############################
-Chombo plot files can be read using the :py:class:`PltFile` class. An example can be found in examples/example_plotting.py:
+Chombo plot files can be read using the :py:class:`~chombopy.plotting.PltFile` class. An example can be found in examples/example_plotting.py:
 
 .. code-block:: python
 
@@ -60,6 +60,7 @@ Chombo plot files can be read using the :py:class:`PltFile` class. An example ca
 
     plt.savefig('plt000100.jpg')
     plt.show()
+
 Result:
 
 .. image:: images/plt000100.jpg
