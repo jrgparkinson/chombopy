@@ -36,6 +36,8 @@ extensions = ['sphinx.ext.autodoc',
     'sphinx.ext.mathjax',
     'sphinx.ext.viewcode',
     'sphinx.ext.githubpages',
+"sphinx.ext.intersphinx",
+              "numpydoc"
               # 'recommonmark',
               #'m2r'
               ]
@@ -76,7 +78,7 @@ language = None
 # List of patterns, relative to source directory, that match files and
 # directories to ignore when looking for source files.
 # This patterns also effect to html_static_path and html_extra_path
-exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store', '.venv2']
+exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store', '.venv2', '.eggs']
 
 # The name of the Pygments (syntax highlighting) style to use.
 pygments_style = 'sphinx'
@@ -179,4 +181,6 @@ texinfo_documents = [
 
 
 
+intersphinx_mapping = {'python': ('https://docs.python.org/3', None),
+                       'xarray': ('http://xarray.pydata.org/en/stable/', None)}
 

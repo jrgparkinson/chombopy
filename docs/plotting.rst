@@ -1,14 +1,14 @@
 Plotting
 ==========
 
-The core of the plotting module is the PltFile object, which represents a Chombo HDF5 output file.
+The core of the plotting module is the :py:func:`~chombopy.plotting.PltFile` object, which represents a Chombo HDF5 output file.
 
 .. code-block:: python
 
     >>> from chombopy.plotting import PltFile
     >>> pf = PltFile('plt000100.2d.hdf5')
 
-N-dimensional volumetric data on each level of refinement is represented by an xarray.DataSet object, which can be analysed and plotted using standard Python packages.
+N-dimensional volumetric data on each level of refinement is represented by an :py:class:`xarray.DataSet` object, which can be analysed and plotted using standard Python packages.
 
 .. code-block:: python
 

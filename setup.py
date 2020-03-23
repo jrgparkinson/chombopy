@@ -11,7 +11,9 @@ release = '0.1.3'
 
 test_requires = ['pytest-cov', 'coverage', 'pytest-html']
 setup_requires = ['wheel', 'sphinx',
-                        'recommonmark>=0.5.0']  #m2r
+                   'recommonmark>=0.5.0',
+                  "numpydoc",
+                  "black"]  #m2r
 
 setup(name=name,
       version=release,

@@ -21,68 +21,90 @@ LOGGER = logging.getLogger(__name__)
 
 class PltFile:
     """
-
     Class to represent a Chombo plot file.
 
+    Attributes
+    ----------
+    is_plot_file : bool
+    defined : bool
+    data_loaded : bool
+    ds_levels : List[xarray.DataSet]
+    iteration : int
+    max_level : int
+    num_levels : int
+    num_comps : int
+    space_dim : int
+    comp_names : List[str]
+    levels : List[dict]
+        Information about each level
+    time : float
+    frame : int
+    prob_domain : List[int]
+        Base level number of cells in each dimension
+    domain_size : List[float]
+        Domain extent in each dimension
+    level_outlines : List[geopandas.GeoSeries]
+        Outline of the level extent on each level
+    inputs : dict
+        Input parameters
+    filename : str
+    plot_prefix : str
+    python_index_ordering : bool
+    indices : dict
+        Indices for filtering data, e.g. dict(y=slice(0,3), x=slice(2,5))
+    reflect : bool
     """
+
     NUM_COMPS = "num_comps"
     DATA = "data"
     DX = "dx"
     DT = "dt"
     REF_RATIO = "ref_ratio"
     BOXES = "boxes"
+    PREFIX_FORMAT = r"([^\d\/]*)(\d+)\.\dd\.hdf5"
 
     # List of names for each direction to be used later
-    INDEX_COORDS_NAMES = ["i", "j", "k", "l", "m"]  # add more here if more dimensions
+    INDEX_COORDS_NAMES = ("i", "j", "k", "l", "m")  # add more here if more dimensions
 
     indices = None
     reflect = None
-
+    is_plot_file = False
+    defined = False
+    data_loaded = False
+    ds_levels = []
+    iteration = -1
+    max_level = -1
+    num_levels = -1
+    num_comps = -1
+    space_dim = -1
+    comp_names = []
+    levels = []
+    time = -1
+    frame = -1
+    prob_domain = None
+    domain_size = []
+    level_outlines = []
+    domain_size = None
+    inputs = None
+    filename = ""
+    data = {}
+    plot_prefix = ""
     python_index_ordering = True
 
     def __init__(self, filename, load_data=True, inputs_file="inputs"):
-        self.is_plot_file = False
-        self.defined = False
-        self.data_loaded = False
-        self.ds = None
-
-        self.ds_levels = []
-
-        # Initialise to bogus values
-        self.iteration = -1
-        self.max_level = -1
-        self.num_levels = -1
-        self.num_comps = -1
-        self.space_dim = -1
-        self.comp_names = []
-        self.levels = []
-        self.time = -1
-        self.frame = -1
-        self.prob_domain = None
-        self.domain_size = []
-        self.xarr_data = None
-        self.level_outlines = []
-        self.full_domain_size = None
-        self.inputs = None
         self.filename = filename
 
         # Now read all the component names
-        self.data = {}
-
         if not os.path.exists(self.filename):
             LOGGER.info('PltFile: file does not exist "%s"' % self.filename)
             return
 
         # Get the plot prefix and frame number assuming a format
-        prefix_format = r"([^\d\/]*)(\d+)\.\dd\.hdf5"
-        plot_file_name = self.filename
-
-        m = re.search(prefix_format, plot_file_name)
+        m = re.search(self.PREFIX_FORMAT, self.filename)
 
         if m and m.groups() and len(m.groups()) == 2:
             self.plot_prefix = m.group(1)
             self.frame = int(m.group(2))
-
         else:
             self.plot_prefix = None
             self.frame = -1
@@ -141,26 +163,17 @@ class PltFile:
         self.space_dim = int(global_attrs["SpaceDim"])
 
         # Now read all the component names
-        self.data = {}
         self.comp_names = []
 
         for i in range(0, self.num_comps):
             name = attrs["component_" + str(i)]
             name = name.decode("UTF-8")
-
-            # Previously, we treated vectors and scalars differently,
-            # now we just store vector components as separate scalar fields
-            # retained previous code (commented out below) in case I ever want it
-            actual_name = name
-
-            self.data[name] = {self.NUM_COMPS: 1, self.DATA: []}
-
-            self.data[actual_name][self.DATA] = [np.nan] * self.num_levels
-            self.comp_names.append(actual_name)
+            self.comp_names.append(name)
 
         ds_levels = []
 
         self.levels = [{}] * self.num_levels
+        self.level_outlines = []
         for level in range(0, self.num_levels):
             level_group = h5_file["level_" + str(level)]
 
@@ -190,11 +203,9 @@ class PltFile:
                     for i in range(0, len(self.prob_domain))
                 ]
 
-                # Moving to ND
-                self.full_domain_size = self.domain_size
+                # Moving to N-dimensions
                 for i in range(self.space_dim, self.space_dim + self.space_dim):
-                    self.full_domain_size[i] = self.full_domain_size[i] + lev_dx
-                    # self.fullDomainSize[3] = self.fullDomainSize[3] + lev_dx
+                    self.domain_size[i] = self.domain_size[i] + lev_dx
 
             # Create a box which spans the whole domain
             # Initialise with a box spanning the whole domain, then add data where it exists
@@ -202,8 +213,8 @@ class PltFile:
             size = []
             for i in range(self.space_dim):
                 lev_dom_box_dir = np.arange(
-                    self.full_domain_size[i] + lev_dx / 2,
-                    self.full_domain_size[i + self.space_dim] - lev_dx / 2,
+                    self.domain_size[i] + lev_dx / 2,
+                    self.domain_size[i + self.space_dim] - lev_dx / 2,
                     lev_dx,
                 )
                 size.append(lev_dom_box_dir.size)
@@ -260,10 +271,13 @@ class PltFile:
                 polygon_vertices_auto = list(product(*end_points))
                 x = [p[0] for p in polygon_vertices_auto]
                 y = [p[1] for p in polygon_vertices_auto]
-                centroid = (sum(x) / len(polygon_vertices_auto), sum(y) / len(polygon_vertices_auto))
+                centroid = (
+                    sum(x) / len(polygon_vertices_auto),
+                    sum(y) / len(polygon_vertices_auto),
+                )
                 polygon_vertices_auto = sorted(
                     polygon_vertices_auto,
-                    key=lambda x: math.atan2( x[1]-centroid[1], x[0]-centroid[0]),
+                    key=lambda x: math.atan2(x[1] - centroid[1], x[0] - centroid[0]),
                 )
 
                 poly = Polygon(polygon_vertices_auto)
@@ -274,12 +288,9 @@ class PltFile:
             self.level_outlines.append(level_outline)
 
             # Data is sorted by box and by component, so need to know total number of components
-            num_comps = 0
-            for comp_name in self.data.keys():
-                num_comps = num_comps + self.data[comp_name][self.NUM_COMPS]
+            num_comps = len(self.comp_names)
 
             # Now get the  data for each field, on each level
-
             if self.is_plot_file:
 
                 # For plt files, data is sorted by box then by component
@@ -348,7 +359,6 @@ class PltFile:
 
                 box_offset_scalar = 0
 
-                # num_boxes = len(self.levels[level][self.BOXES])
                 for box in self.levels[level][self.BOXES]:
                     lo_indices, hi_indices = self.get_indices(box)
 
@@ -545,7 +555,6 @@ class PltFile:
         extended_coords = coords
         extended_coords["level"] = level
 
-
         # If for some reason the data isn't in the right shape, try transposing
         if not reshaped_data.shape[0] == len(extended_coords[dim_list[0]]):
             LOGGER.warning("Reshaped data inconsistent with coordinates")
@@ -615,7 +624,6 @@ class PltFile:
 
         if field not in available_comps:
             LOGGER.info("Field: %s not found. The following fields do exist: " % field)
-            # LOGGER.info(self.data.keys())
             LOGGER.info(available_comps)
             return
 
@@ -631,7 +639,7 @@ class PltFile:
 
             coarsened_fine = fine_level.coarsen(x=ref_ratio, y=ref_ratio).mean()
 
-            coarse_nans = ld.copy(deep=True) * float('NaN')
+            coarse_nans = ld.copy(deep=True) * float("NaN")
             coarsened_fine = coarsened_fine.combine_first(coarse_nans)
 
             # NaN values are those which aren't covered on the finer level
@@ -653,7 +661,6 @@ class PltFile:
                 ld = -ld
 
         return ld
-
 
     @staticmethod
     def get_mesh_grid_n(arr, grow=0):
@@ -688,8 +695,6 @@ class PltFile:
 
         return x, y
 
-
-
     def get_rotate_dims(self, rotate_dims):
         """
         Backward compatibility fix. Originally user had to ask to rotate dimensions to match
@@ -713,7 +718,6 @@ class PltFile:
 
     def get_mesh_grid_for_level(self, level=0, grow=False):
         """
-
         Gets the coordinates for the given DataArray as numpy arrays
 
         Parameters
@@ -727,15 +731,14 @@ class PltFile:
         -------
         x, y : numpy.array
             Coordinates in x and y directions.
-
         """
+
         arr = self.get_level_data(self.comp_names[0], level=level)
         return PltFile.get_mesh_grid_xarray(arr, grow)
 
     @staticmethod
     def get_mesh_grid_xarray(arr, grow=False):
         """
-
         Gets the coordinates for the given DataArray as numpy arrays
 
         Parameters
@@ -749,8 +752,8 @@ class PltFile:
         -------
         x, y : numpy.array
             Coordinates in x and y directions.
-
         """
+
         x = np.array(arr.coords["x"])
         y = np.array(arr.coords["y"])
 
@@ -768,7 +771,6 @@ class PltFile:
 
     def get_mesh_grid(self, rotate_dims=False, extend_grid=True, level=0):
         """
-
         Returns coordinate grids in each dimension
 
         Parameters
@@ -785,13 +787,11 @@ class PltFile:
         -------
         x, y, z : numpy.mgrid
             Grid in each dimension
-
         """
+
         rotate_dims = self.get_rotate_dims(rotate_dims)
 
-        components = list(self.data.keys())
-
-        field = self.get_level_data(components[0], level=level)
+        field = self.get_level_data(self.comp_names[0], level=level)
 
         x_coords = np.array(field.coords["x"])
         y_coords = np.array(field.coords["y"])
@@ -810,11 +810,11 @@ class PltFile:
 
         if self.space_dim == 3:
 
-            dir_strings = ['x', 'y', 'z']
+            dir_strings = ["x", "y", "z"]
             dir_extents = []
             for i in range(0, self.space_dim):
                 dir_coords = np.array(field.coords[dir_strings[i]])
-                dir_extents.append( (min(dir_coords) - extend, max(dir_coords) + extend) )
+                dir_extents.append((min(dir_coords) - extend, max(dir_coords) + extend))
 
             # grid_size = field_array.shape
             # if extend_grid:
@@ -825,7 +825,14 @@ class PltFile:
             # grid_spacing = [coord_max[i] / grid_size[i] for i in range(0, self.space_dim)]
             grid_spacing = dx
             grids = np.mgrid[
-                [slice(dir_extents[i][0], dir_extents[i][1] + grid_spacing, grid_spacing) for i in range(0, self.space_dim)]
+                [
+                    slice(
+                        dir_extents[i][0],
+                        dir_extents[i][1] + grid_spacing,
+                        grid_spacing,
+                    )
+                    for i in range(0, self.space_dim)
+                ]
             ]
 
             x = grids[0]
@@ -966,7 +973,7 @@ class PltFile:
         colors :  list, optional
             List of colours to plot on each level, from which the relevant colour for the required level is sampled.
         """
-        for level in np.arange(1, len(self.level_outlines)):
+        for level in self.get_levels()[1:]:
             self.plot_outline(ax, level, colors)
 
     def plot_outline(self, ax, level, colors=None):
@@ -1017,6 +1024,7 @@ class PltFile:
     def get_levels(self):
         """
         Get list of levels in this dataset
+
         Returns
         -------
         levels : list
@@ -1027,6 +1035,7 @@ class PltFile:
     def get_norm(self, field, levels=None):
         """
         Compute min and max values of field across the AMR hierarchy
+        
         Parameters
         ----------
         field : str
@@ -1059,14 +1068,31 @@ def setup_mpl_latex(font_size=9, linewidth=1):
     """
 
     # Need the mathsrfs package for \mathscr if text.usetex = True
-    params = {'text.latex.preamble': ['\\usepackage{gensymb}', '\\usepackage{mathrsfs}', '\\usepackage{amsmath}'],
-              'axes.labelsize': font_size, 'axes.titlesize': font_size, 'legend.fontsize': font_size,
-              'xtick.labelsize': font_size, 'ytick.labelsize': font_size, 'font.size': font_size,
-              'xtick.direction': 'in', 'ytick.direction': 'in', 'lines.markersize': 3, 'lines.linewidth': linewidth,
-              'text.usetex': True,  'font.family': 'serif', 'backend': 'ps'}
+    params = {
+        "text.latex.preamble": [
+            "\\usepackage{gensymb}",
+            "\\usepackage{mathrsfs}",
+            "\\usepackage{amsmath}",
+        ],
+        "axes.labelsize": font_size,
+        "axes.titlesize": font_size,
+        "legend.fontsize": font_size,
+        "xtick.labelsize": font_size,
+        "ytick.labelsize": font_size,
+        "font.size": font_size,
+        "xtick.direction": "in",
+        "ytick.direction": "in",
+        "lines.markersize": 3,
+        "lines.linewidth": linewidth,
+        "text.usetex": True,
+        "font.family": "serif",
+        "backend": "ps",
+    }
 
-    if 'osx' in socket.gethostname():
-        params['pgf.texsystem'] = 'pdflatex'
-        os.environ['PATH'] = os.environ['PATH'] + ':/Library/TeX/texbin/:/usr/local/bin/'
+    if "osx" in socket.gethostname():
+        params["pgf.texsystem"] = "pdflatex"
+        os.environ["PATH"] = (
+            os.environ["PATH"] + ":/Library/TeX/texbin/:/usr/local/bin/"
+        )
 
     mpl.rcParams.update(params)
