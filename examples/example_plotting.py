@@ -2,13 +2,13 @@ import matplotlib.pyplot as plt
 from chombopy.plotting import PltFile, setup_mpl_latex
 import matplotlib.cm as cm
 
-pf = PltFile('../tests/data/plt000100.2d.hdf5')
+pf = PltFile("../tests/data/plt000100.2d.hdf5")
 
 setup_mpl_latex(14)
 fig = plt.figure()
 ax = plt.gca()
-cmap = 'viridis'
-field = 'Temperature'
+cmap = "viridis"
+field = "Temperature"
 
 # Get data for the temperature variable on level 2
 for level in pf.get_levels():
@@ -28,6 +28,5 @@ cbar = fig.colorbar(cm.ScalarMappable(norm=pf.get_norm(field), cmap=cmap), ax=ax
 cbar.ax.set_ylabel(field)
 
 
-plt.savefig('../docs/images/plt000100.jpg')
+plt.savefig("../docs/images/plt000100.jpg")
 plt.show()
-
