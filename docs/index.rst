@@ -35,49 +35,16 @@ See below for more examples and guides.
 .. _Chombo: https://commons.lbl.gov/display/chombo/Chombo+-+Software+for+Adaptive+Solutions+of+Partial+Differential+Equations
 
 
-**Getting Started**
-
-* :doc:`installation`
-* :doc:`examples`
 
 
 .. toctree::
    :maxdepth: 1
-   :hidden:
-   :caption: Getting Started
 
    installation
    examples
-
-
-**User Guide**
-
-
-* :doc:`plotting`
-* :doc:`inputs`
-
-.. toctree::
-   :maxdepth: 1
-   :hidden:
-   :caption: User Guide
-
    plotting
    inputs
-
-**Reference**
-
-* :doc:`plotting`
-* :doc:`inputs`
-
-.. toctree::
-   :maxdepth: 1
-   :hidden:
-   :caption: Reference
-
-   plotting-ref
-   inputs-ref
-
-
+   timing
 
 
 Indices and tables
