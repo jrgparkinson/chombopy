@@ -37,8 +37,9 @@ jobs:
           repository_url: https://test.pypi.org/legacy/
 
       # Publish to PyPI (not test) if tags are included in the push
+      # Always try and publish to PyPI. Will succeed if version is new
+      # if: startsWith(github.event.ref, 'refs/tags')
       - name: Publish distribution 📦 to PyPI
-        if: startsWith(github.event.ref, 'refs/tags')
         uses: pypa/gh-action-pypi-publish@master
         with:
           password: ${{ secrets.pypi_password }}
