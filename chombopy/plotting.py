@@ -252,8 +252,9 @@ class PltFile:
             ds_boxes = [ds_dom_box]
 
             # Get level outlines
+            boxes = self.levels[level][self.BOXES]
             polygons = []
-            for box in self.levels[level][self.BOXES]:
+            for box in boxes:
                 lo_indices, hi_indices = self.get_indices(box)
 
                 # 0.5 because cell centred
