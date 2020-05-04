@@ -7,7 +7,7 @@ with open(path.join(this_directory, "README.md"), encoding="utf-8") as f:
 
 name = "chombopy"
 version = "0.2"
-release = "0.2.0"
+release = "0.2.1"
 
 test_requires = ["pytest-cov", "coverage", "pytest-html"]
 setup_requires = ["wheel", "sphinx", "recommonmark>=0.5.0", "numpydoc", "black"]
