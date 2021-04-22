@@ -8,7 +8,7 @@ import socket
 import math
 import logging
 import xarray as xr
-from shapely.ops import cascaded_union
+from shapely.ops import unary_union
 from shapely.geometry import Polygon
 import geopandas as gpd
 from chombopy.inputs import read_inputs
@@ -285,7 +285,7 @@ class PltFile:
                 if poly.is_valid:
                     polygons.append(poly)
 
-            level_outline = gpd.GeoSeries(cascaded_union(polygons))
+            level_outline = gpd.GeoSeries(unary_union(polygons))
             self.level_outlines.append(level_outline)
 
             # Data is sorted by box and by component, so need to know total number of components

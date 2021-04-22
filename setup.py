@@ -10,7 +10,15 @@ version = "0.2"
 release = "0.2.1"
 
 test_requires = ["pytest-cov", "coverage", "pytest-html"]
-setup_requires = ["wheel", "sphinx", "recommonmark>=0.5.0", "numpydoc", "black"]
+setup_requires = [
+    "wheel==0.34.2",
+    "sphinx==2.4.4",
+    "docutils==0.16",
+    "recommonmark==0.6.0",
+    "cython==0.30",
+    "numpy==1.18.5",
+    "numpydoc==1.1.0"
+]
 
 setup(
     name=name,
@@ -31,15 +39,15 @@ setup(
     setup_requires=setup_requires,
     python_requires=">=3.6",
     install_requires=[
-        "matplotlib>=3.0.0",
+        "matplotlib==3.0.0",
         "Shapely>=1.6.0",
-        "geopandas>=0.6.2",
-        "scipy>=1.2.0",
-        "scikit-image>=0.16.2",
+        "geopandas==0.6.2",
+        "scipy==1.1.0",
         "xarray>=0.11.3",
         "h5py>=2.9.0",
-        "numpy>=1.16.0",
         "descartes",
+        "pyproj<=1.9.6",
+        "pandas==1.1"
     ]
     + test_requires
     + setup_requires,
