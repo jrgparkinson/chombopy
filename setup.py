@@ -15,7 +15,7 @@ setup_requires = [
     "sphinx==2.4.4",
     "docutils==0.16",
     "recommonmark==0.6.0",
-    "cython==0.30",
+    "cython<0.30",
     "numpy==1.18.5",
     "numpydoc==1.1.0"
 ]
