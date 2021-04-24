@@ -6,8 +6,9 @@ with open(path.join(this_directory, "README.md"), encoding="utf-8") as f:
     long_description = f.read()
 
 name = "chombopy"
-version = "0.2"
-release = "0.2.1"
+with open("version.txt", "r") as version_file:
+    release = version_file.read().strip()
+version = ".".join(release.split(".")[:-1])
 
 test_requires = ["pytest-cov", "coverage", "pytest-html"]
 setup_requires = [
