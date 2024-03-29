@@ -8,21 +8,22 @@ on:
 jobs:
   build-n-publish:
     name: Run Tests
-    runs-on: ubuntu-18.04
+    runs-on: ubuntu-20.04
 
     steps:
       - uses: actions/checkout@master
-      - name: Set up Python 3.6
+      - name: Set up Python 3.10
         uses: actions/setup-python@v1
         with:
-          python-version: 3.6
+          python-version: "3.10"
 
       - name: Install HDF5
         run:
           sudo apt-get install libhdf5-serial-dev
 
       - name: Install locally
-        run:
+        run: |
+          pip install -r requirements.txt 
           python setup.py install
 
       - name: Run unit tests

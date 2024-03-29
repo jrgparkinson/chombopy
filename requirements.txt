@@ -1,0 +1,7 @@
+numpy==1.22.1
+matplotlib
+Shapely
+h5py
+pandas
+geopandas
+xarray
