@@ -18,7 +18,8 @@ jobs:
           python-version: "3.10"
 
       - name: Install locally
-        run:
+        run: |
+          pip install -r requirements.txt
           python setup.py install
 
       - name: Run unit tests before deployment
