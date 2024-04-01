@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@master
       - name: Set up Python 3.10
-        uses: actions/setup-python@v1
+        uses: actions/setup-python@v3
         with:
           python-version: "3.10"
 
@@ -31,7 +31,7 @@ jobs:
           python setup.py sdist bdist_wheel
 
       - name: Publish distribution 📦 to Test PyPI
-        uses: pypa/gh-action-pypi-publish@master
+        uses: pypa/gh-action-pypi-publish@release/v1
         continue-on-error: true
         with:
           password: ${{ secrets.test_pypi_password }}
@@ -49,13 +49,13 @@ jobs:
         run: |
           git diff --name-only > changed_files.log
           cat changed_files.log 
-          echo "::set-output name=changed::$(cat changed_files.log)\n"
+          echo "changed=$(cat changed_files.log)\n" >> $GITHUB_OUTPUT
 
       # Publish to PyPI (not test) if tags are included in the push
       # Always try and publish to PyPI. Will succeed if version is new
       # if: startsWith(github.event.ref, 'refs/tags')
       - name: Publish distribution 📦 to PyPI if version changed
         if: contains(steps.changed-files.outputs.changed, 'version.txt')
-        uses: pypa/gh-action-pypi-publish@master
+        uses: pypa/gh-action-pypi-publish@release/v1
         with:
           password: ${{ secrets.pypi_password }}
