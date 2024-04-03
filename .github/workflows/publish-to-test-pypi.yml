@@ -10,6 +10,13 @@ jobs:
     name: Build and publish Python 🐍 distributions 📦 to PyPI and TestPyPI
     runs-on: ubuntu-20.04
 
+
+    environment:
+      name: pypi
+      url: https://pypi.org/p/chombopy
+    permissions:
+      id-token: write
+
     steps:
       - uses: actions/checkout@master
       - name: Set up Python 3.10
@@ -30,19 +37,10 @@ jobs:
         run:
           python setup.py sdist bdist_wheel
 
-      - name: Publish distribution 📦 to Test PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
-        continue-on-error: true
-        with:
-          password: ${{ secrets.test_pypi_password }}
-          repository-url: https://test.pypi.org/legacy/
-
       # Publish to PyPI (not test) if tags are included in the push
       # Always try and publish to PyPI. Will succeed if version is new
-      - name: Publish distribution 📦 to PyPI if version changed
+      - name: Publish package distributions to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          password: ${{ secrets.pypi_password }}
 
       - name: Get version
         id: version
