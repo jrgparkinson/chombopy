@@ -37,25 +37,26 @@ jobs:
           password: ${{ secrets.test_pypi_password }}
           repository-url: https://test.pypi.org/legacy/
 
-      # - name: Get changed files
-      #   id: changed-files
-      #   # uses: tj-actions/changed-files@v2.1
-      #   uses: jitterbit/get-changed-files@v1
-      #   with:
-      #     format: 'csv'
-
-      - name: Check if version changed
-        id: changed-files
-        run: |
-          git diff --name-only > changed_files.log
-          cat changed_files.log 
-          echo "changed=$(cat changed_files.log)\n" >> $GITHUB_OUTPUT
-
       # Publish to PyPI (not test) if tags are included in the push
       # Always try and publish to PyPI. Will succeed if version is new
-      # if: startsWith(github.event.ref, 'refs/tags')
       - name: Publish distribution 📦 to PyPI if version changed
-        if: contains(steps.changed-files.outputs.changed, 'version.txt')
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           password: ${{ secrets.pypi_password }}
+
+      - name: Get version
+        id: version
+        run: |
+          echo "version=$(cat version.txt)" >> $GITHUB_OUTPUT
+
+      # Tag if succesful
+      - name: Tag release
+        uses: actions/github-script@v4
+        with:
+          script: |
+            github.git.createRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: "refs/tags/{{steps.version.outputs.version}}",
+              sha: context.sha
+            })
