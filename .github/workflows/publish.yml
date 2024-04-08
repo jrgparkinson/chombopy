@@ -26,8 +26,7 @@ jobs:
 
       - name: Install locally
         run: |
-          pip install -r requirements.txt
-          python setup.py install
+          python3 -m pip install build --user
 
       - name: Run unit tests before deployment
         run: |
@@ -35,7 +34,7 @@ jobs:
 
       - name: Build binary
         run:
-          python setup.py sdist bdist_wheel
+          python3 -m build
 
       # Publish to PyPI (not test) if tags are included in the push
       # Always try and publish to PyPI. Will succeed if version is new
