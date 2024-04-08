@@ -26,7 +26,7 @@ jobs:
 
       - name: Install locally
         run: |
-          python3 -m pip install build --user
+          python3 -m pip install build -r requirements.txt --user
 
       - name: Run unit tests before deployment
         run: |
